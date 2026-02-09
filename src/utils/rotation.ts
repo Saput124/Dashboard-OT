@@ -12,7 +12,7 @@ export const generateRotationSchedule = async (
   const aktifPekerja = pekerjaList.filter(p => p.aktif)
   
   // Distribusi pekerja ke 3 grup rotasi
-  const pekerjaPer Grup = Math.ceil(aktifPekerja.length / 3)
+  const pekerjaPerGrup = Math.ceil(aktifPekerja.length / 3)
   const grup1 = aktifPekerja.slice(0, pekerjaPerGrup)
   const grup2 = aktifPekerja.slice(pekerjaPerGrup, pekerjaPerGrup * 2)
   const grup3 = aktifPekerja.slice(pekerjaPerGrup * 2)
