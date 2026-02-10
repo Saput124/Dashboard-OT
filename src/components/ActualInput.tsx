@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { ClipboardCheck, Save, X } from 'lucide-react'
+import { ClipboardCheck, Save } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../utils/rotation'
-import type { RencanaOvertime, Pekerja, AktualOvertime } from '../types'
+import type { RencanaOvertime, Pekerja } from '../types'
 
 export default function ActualInput() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
@@ -28,7 +28,7 @@ export default function ActualInput() {
 
   const fetchRencanaByDate = async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('rencana_overtime')
       .select(`
         *,
@@ -46,7 +46,7 @@ export default function ActualInput() {
   }
 
   const fetchPekerjaByRencana = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('pekerja_rencana')
       .select(`
         *,
