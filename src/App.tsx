@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, CalendarPlus, ClipboardCheck } from 'lucide-react'
+import { LayoutDashboard, CalendarPlus, ClipboardCheck, Settings } from 'lucide-react'
 import Dashboard from './components/Dashboard'
 import RotationPlan from './components/RotationPlan'
 import ActualInput from './components/ActualInput'
+import Management from './components/Management'
 
 function Navigation() {
   const location = useLocation()
@@ -11,6 +12,7 @@ function Navigation() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/rotation', icon: CalendarPlus, label: 'Rencana Rotasi' },
     { path: '/actual', icon: ClipboardCheck, label: 'Input Aktual' },
+    { path: '/management', icon: Settings, label: 'Management' },
   ]
 
   return (
@@ -58,6 +60,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/rotation" element={<RotationPlan />} />
             <Route path="/actual" element={<ActualInput />} />
+            <Route path="/management" element={<Management />} />
           </Routes>
         </main>
       </div>
