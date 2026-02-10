@@ -225,7 +225,7 @@ export default function Dashboard() {
                   <div className="text-sm truncate" title={pekerja.nama}>
                     {pekerja.nama}
                   </div>
-                  <div className="text-xs text-gray-500">{pekerja.nik}</div>
+                  <div className="text-xs text-gray-500">{pekerja.nip}</div>
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
