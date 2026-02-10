@@ -1,7 +1,7 @@
 export interface Pekerja {
   id: string
   nama: string
-  nik: string
+  nip: string
   aktif: boolean
   created_at: string
 }
