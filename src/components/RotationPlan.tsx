@@ -1,29 +1,48 @@
 import { useState, useEffect } from 'react'
-import { Calendar, Users, Clock, AlertCircle, Eye, Trash2 } from 'lucide-react'
+import { Calendar, Users, Clock, AlertCircle, Eye, Trash2, CheckSquare, Square } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateRotationSchedule, saveRotationSchedule, formatDate, getDayName } from '../utils/rotation'
+import { differenceInDays } from 'date-fns'
 import type { JenisOvertime, Pekerja } from '../types'
 
 export default function RotationPlan() {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [endDate, setEndDate] = useState(
+    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  )
   const [jenisOvertimeList, setJenisOvertimeList] = useState<JenisOvertime[]>([])
   const [pekerjaList, setPekerjaList] = useState<Pekerja[]>([])
+  const [selectedPekerjaIds, setSelectedPekerjaIds] = useState<string[]>([])
+  const [selectedOvertimeIds, setSelectedOvertimeIds] = useState<string[]>([])
   const [generatedSchedule, setGeneratedSchedule] = useState<any[]>([])
   const [savedPlans, setSavedPlans] = useState<any[]>([])
+  const [workloadPreview, setWorkloadPreview] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
+
+  const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
 
   useEffect(() => {
     fetchData()
     fetchSavedPlans()
   }, [])
 
+  useEffect(() => {
+    // Auto-select all by default
+    if (pekerjaList.length > 0 && selectedPekerjaIds.length === 0) {
+      setSelectedPekerjaIds(pekerjaList.map(p => p.id))
+    }
+    if (jenisOvertimeList.length > 0 && selectedOvertimeIds.length === 0) {
+      setSelectedOvertimeIds(jenisOvertimeList.map(ot => ot.id))
+    }
+  }, [pekerjaList, jenisOvertimeList])
+
   const fetchData = async () => {
     const [jenisOT, pekerja] = await Promise.all([
-      supabase.from('jenis_overtime').select('*'),
-      supabase.from('pekerja').select('*').eq('aktif', true)
+      supabase.from('jenis_overtime').select('*').order('nama', { ascending: true }),
+      supabase.from('pekerja').select('*').eq('aktif', true).order('nama', { ascending: true })
     ])
 
     if (jenisOT.data) setJenisOvertimeList(jenisOT.data)
@@ -45,7 +64,6 @@ export default function RotationPlan() {
       .limit(100)
 
     if (data) {
-      // Group by date
       const grouped = data.reduce((acc: any, item: any) => {
         if (!acc[item.tanggal]) {
           acc[item.tanggal] = []
@@ -58,23 +76,65 @@ export default function RotationPlan() {
   }
 
   const handleGenerate = async () => {
+    if (selectedPekerjaIds.length === 0) {
+      setMessage('Error: Pilih minimal 1 pekerja')
+      return
+    }
+    if (selectedOvertimeIds.length === 0) {
+      setMessage('Error: Pilih minimal 1 jenis overtime')
+      return
+    }
+    if (!startDate || !endDate) {
+      setMessage('Error: Pilih tanggal mulai dan selesai')
+      return
+    }
+    if (new Date(endDate) < new Date(startDate)) {
+      setMessage('Error: Tanggal selesai harus lebih besar dari tanggal mulai')
+      return
+    }
+
     setLoading(true)
     setMessage('')
     
     try {
       const schedules = await generateRotationSchedule(
-        new Date(startDate),
-        15,
+        {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          selectedPekerjaIds,
+          selectedOvertimeIds
+        },
         jenisOvertimeList,
         pekerjaList
       )
       setGeneratedSchedule(schedules)
-      setMessage('Jadwal berhasil dibuat! Silakan review sebelum menyimpan.')
-    } catch (error) {
-      setMessage('Error generating schedule: ' + error)
+      calculateWorkloadPreview(schedules)
+      setMessage(`Jadwal berhasil dibuat! Total ${totalDays} hari. Silakan review distribusi beban kerja sebelum menyimpan.`)
+    } catch (error: any) {
+      setMessage('Error: ' + error.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  const calculateWorkloadPreview = (schedules: any[]) => {
+    const workload: { [pekerjaId: string]: { nama: string, totalJam: number, jumlahTugas: number } } = {}
+    
+    schedules.forEach(schedule => {
+      schedule.assigned_pekerja.forEach((p: Pekerja) => {
+        if (!workload[p.id]) {
+          workload[p.id] = { nama: p.nama, totalJam: 0, jumlahTugas: 0 }
+        }
+        workload[p.id].totalJam += schedule.durasi_jam
+        workload[p.id].jumlahTugas += 1
+      })
+    })
+
+    const preview = Object.entries(workload)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.totalJam - a.totalJam)
+    
+    setWorkloadPreview(preview)
   }
 
   const handleSave = async () => {
@@ -86,6 +146,7 @@ export default function RotationPlan() {
       if (result.success) {
         setMessage('Jadwal berhasil disimpan!')
         setGeneratedSchedule([])
+        setWorkloadPreview([])
         fetchSavedPlans()
         setActiveTab('list')
       } else {
@@ -112,6 +173,34 @@ export default function RotationPlan() {
       fetchSavedPlans()
     } catch (error: any) {
       setMessage('Error: ' + error.message)
+    }
+  }
+
+  const togglePekerja = (id: string) => {
+    setSelectedPekerjaIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleOvertime = (id: string) => {
+    setSelectedOvertimeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleAllPekerja = () => {
+    if (selectedPekerjaIds.length === pekerjaList.length) {
+      setSelectedPekerjaIds([])
+    } else {
+      setSelectedPekerjaIds(pekerjaList.map(p => p.id))
+    }
+  }
+
+  const toggleAllOvertime = () => {
+    if (selectedOvertimeIds.length === jenisOvertimeList.length) {
+      setSelectedOvertimeIds([])
+    } else {
+      setSelectedOvertimeIds(jenisOvertimeList.map(ot => ot.id))
     }
   }
 
@@ -169,46 +258,189 @@ export default function RotationPlan() {
 
       {/* Generate Tab */}
       {activeTab === 'generate' && (
-        <div className="card">
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-            <Calendar className="w-6 h-6" />
-            Generate Rencana Rotasi Lembur
-          </h2>
+        <div className="space-y-6">
+          <div className="card">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Calendar className="w-6 h-6" />
+              Generate Rencana Rotasi Lembur
+            </h2>
 
-          <div className="space-y-4">
-            <div>
-              <label className="label">Tanggal Mulai</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="input-field"
-              />
-            </div>
+            <div className="space-y-6">
+              {/* Date Range */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="label">Tanggal Mulai</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="label">Tanggal Selesai</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="label">Total Hari</label>
+                  <div className="input-field bg-gray-50 flex items-center justify-center font-semibold text-blue-600">
+                    {totalDays > 0 ? `${totalDays} hari` : '-'}
+                  </div>
+                </div>
+              </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleGenerate}
-                disabled={loading || !startDate}
-                className="btn-primary disabled:opacity-50"
-              >
-                {loading ? 'Generating...' : 'Generate Jadwal 15 Hari'}
-              </button>
+              {/* Worker Selection */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Pilih Pekerja ({selectedPekerjaIds.length}/{pekerjaList.length})
+                  </h3>
+                  <button
+                    onClick={toggleAllPekerja}
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    {selectedPekerjaIds.length === pekerjaList.length ? (
+                      <>
+                        <Square className="w-4 h-4" />
+                        Deselect All
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-4 h-4" />
+                        Select All
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-64 overflow-y-auto">
+                  {pekerjaList.map(pekerja => (
+                    <label
+                      key={pekerja.id}
+                      className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPekerjaIds.includes(pekerja.id)}
+                        onChange={() => togglePekerja(pekerja.id)}
+                        className="rounded text-blue-600"
+                      />
+                      <span className="text-sm truncate" title={pekerja.nama}>{pekerja.nama}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
-              {generatedSchedule.length > 0 && (
+              {/* Overtime Type Selection */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    Pilih Jenis Overtime ({selectedOvertimeIds.length}/{jenisOvertimeList.length})
+                  </h3>
+                  <button
+                    onClick={toggleAllOvertime}
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    {selectedOvertimeIds.length === jenisOvertimeList.length ? (
+                      <>
+                        <Square className="w-4 h-4" />
+                        Deselect All
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-4 h-4" />
+                        Select All
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {jenisOvertimeList.map(overtime => (
+                    <label
+                      key={overtime.id}
+                      className="flex items-start gap-3 p-3 hover:bg-white rounded cursor-pointer border border-transparent hover:border-blue-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedOvertimeIds.includes(overtime.id)}
+                        onChange={() => toggleOvertime(overtime.id)}
+                        className="mt-1 rounded text-blue-600"
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium">{overtime.nama}</div>
+                        <div className="text-sm text-gray-600">
+                          {overtime.alokasi_pekerja} pekerja • {overtime.durasi_jam} jam • {overtime.keterangan}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
                 <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="btn-success disabled:opacity-50"
+                  onClick={handleGenerate}
+                  disabled={loading || selectedPekerjaIds.length === 0 || selectedOvertimeIds.length === 0}
+                  className="btn-primary disabled:opacity-50"
                 >
-                  {saving ? 'Menyimpan...' : 'Simpan Jadwal'}
+                  {loading ? 'Generating...' : `Generate Jadwal (${totalDays} hari)`}
                 </button>
-              )}
+
+                {generatedSchedule.length > 0 && (
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="btn-success disabled:opacity-50"
+                  >
+                    {saving ? 'Menyimpan...' : 'Simpan Jadwal'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
+          {/* Workload Preview */}
+          {workloadPreview.length > 0 && (
+            <div className="card bg-blue-50 border border-blue-200">
+              <h3 className="font-semibold mb-4 text-blue-900">Preview Distribusi Beban Kerja</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+                {workloadPreview.map((item) => {
+                  const avgJam = (item.totalJam / totalDays).toFixed(1)
+                  const isBalanced = item.totalJam >= workloadPreview[workloadPreview.length - 1].totalJam * 0.8
+                  
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-lg border ${
+                        isBalanced ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">{item.nama}</div>
+                      <div className="text-xs text-gray-600 mt-1">
+                        Total: <span className="font-semibold">{item.totalJam} jam</span> ({item.jumlahTugas} tugas)
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        Rata-rata: <span className="font-semibold">{avgJam} jam/hari</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-sm text-blue-700 mt-3">
+                ℹ️ <strong>Hijau</strong> = Distribusi seimbang, <strong>Kuning</strong> = Beban lebih ringan dari yang lain
+              </p>
+            </div>
+          )}
+
+          {/* Generated Schedule Preview */}
           {generatedSchedule.length > 0 && (
-            <div className="mt-6">
+            <div className="card">
               <h3 className="text-xl font-bold mb-4">Preview Jadwal</h3>
               <div className="space-y-4">
                 {Object.entries(groupedSchedules).map(([tanggal, schedules]) => {
@@ -271,13 +503,14 @@ export default function RotationPlan() {
             </div>
           )}
 
-          <div className="card bg-blue-50 border border-blue-200 mt-6">
-            <h3 className="font-semibold mb-2 text-blue-900">Informasi Rotasi</h3>
+          <div className="card bg-blue-50 border border-blue-200">
+            <h3 className="font-semibold mb-2 text-blue-900">Informasi Algoritma</h3>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Rotasi dilakukan setiap 3 hari sekali</li>
-              <li>• Total 3 grup pekerja yang bergiliran</li>
-              <li>• Hari Minggu ditandai dengan warna kuning</li>
-              <li>• Setiap jenis overtime memiliki alokasi pekerja yang berbeda</li>
+              <li>• Rotasi dilakukan setiap 3 hari sekali (Grup 1, 2, 3 bergantian)</li>
+              <li>• <strong>Load Balancing</strong>: Pekerja dengan beban paling ringan diprioritaskan</li>
+              <li>• <strong>Fair Distribution</strong>: Tidak ada pekerja yang terlewat (gap)</li>
+              <li>• Jika ada OT 2 jam dan OT 1 jam, sistem akan balance agar total jam merata</li>
+              <li>• Setiap pekerja maksimal 1 tugas per hari per jenis OT</li>
             </ul>
           </div>
         </div>
