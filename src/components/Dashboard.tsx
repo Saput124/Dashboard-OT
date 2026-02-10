@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, startOfDay, differenceInDays } from 'date-fns'
 
 interface ScheduleData {
   [pekerjaId: string]: {
@@ -21,14 +21,16 @@ interface ScheduleData {
 export default function Dashboard() {
   const [scheduleData, setScheduleData] = useState<ScheduleData>({})
   const [startDate, setStartDate] = useState(new Date())
+  const [endDate, setEndDate] = useState(addDays(new Date(), 14))
   const [loading, setLoading] = useState(true)
   const [pekerjaList, setPekerjaList] = useState<any[]>([])
 
-  const dates = Array.from({ length: 15 }, (_, i) => addDays(startOfDay(startDate), i))
+  const totalDays = differenceInDays(endDate, startDate) + 1
+  const dates = Array.from({ length: totalDays }, (_, i) => addDays(startOfDay(startDate), i))
 
   useEffect(() => {
     fetchScheduleBoard()
-  }, [startDate])
+  }, [startDate, endDate])
 
   const fetchScheduleBoard = async () => {
     setLoading(true)
@@ -48,7 +50,6 @@ export default function Dashboard() {
     setPekerjaList(pekerja)
 
     // Fetch rencana for date range
-    const endDate = addDays(startDate, 14)
     const { data: rencanaData } = await supabase
       .from('rencana_overtime')
       .select(`
@@ -110,15 +111,26 @@ export default function Dashboard() {
   }
 
   const handlePrevWeek = () => {
-    setStartDate(prev => addDays(prev, -7))
+    const days = differenceInDays(endDate, startDate) + 1
+    setStartDate(prev => addDays(prev, -days))
+    setEndDate(prev => addDays(prev, -days))
   }
 
   const handleNextWeek = () => {
-    setStartDate(prev => addDays(prev, 7))
+    const days = differenceInDays(endDate, startDate) + 1
+    setStartDate(prev => addDays(prev, days))
+    setEndDate(prev => addDays(prev, days))
   }
 
   const handleToday = () => {
+    const days = differenceInDays(endDate, startDate)
     setStartDate(new Date())
+    setEndDate(addDays(new Date(), days))
+  }
+
+  const handleDateRangeChange = (start: string, end: string) => {
+    if (start) setStartDate(new Date(start))
+    if (end) setEndDate(new Date(end))
   }
 
   if (loading) {
@@ -137,29 +149,90 @@ export default function Dashboard() {
           <Calendar className="w-7 h-7" />
           Papan Jadwal Overtime
         </h2>
-        <p className="text-gray-600">Jadwal rotasi lembur selama 15 hari</p>
+        <p className="text-gray-600">Jadwal rotasi lembur (pilih periode sesuai kebutuhan)</p>
       </div>
 
-      {/* Date Navigation */}
+      {/* Date Navigation & Range Selector */}
       <div className="card">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="space-y-4">
+          {/* Date Range Inputs */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="label text-xs">Tanggal Mulai</label>
+              <input
+                type="date"
+                value={format(startDate, 'yyyy-MM-dd')}
+                onChange={(e) => handleDateRangeChange(e.target.value, format(endDate, 'yyyy-MM-dd'))}
+                className="input-field text-sm"
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Tanggal Selesai</label>
+              <input
+                type="date"
+                value={format(endDate, 'yyyy-MM-dd')}
+                onChange={(e) => handleDateRangeChange(format(startDate, 'yyyy-MM-dd'), e.target.value)}
+                className="input-field text-sm"
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Total Hari</label>
+              <div className="input-field bg-blue-50 text-center font-semibold text-blue-700 text-sm">
+                {totalDays} hari
+              </div>
+            </div>
+            <div className="flex items-end">
+              <button onClick={handleToday} className="btn-primary w-full">
+                Hari Ini
+              </button>
+            </div>
+          </div>
+
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-center gap-3">
             <button onClick={handlePrevWeek} className="btn-secondary p-2">
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="text-center">
-              <p className="text-lg font-semibold">
-                {format(startDate, 'dd MMM yyyy')} - {format(dates[14], 'dd MMM yyyy')}
+            <div className="text-center px-4">
+              <p className="text-sm font-semibold text-gray-700">
+                {format(startDate, 'dd MMM yyyy')} - {format(endDate, 'dd MMM yyyy')}
               </p>
-              <p className="text-sm text-gray-600">15 hari</p>
             </div>
             <button onClick={handleNextWeek} className="btn-secondary p-2">
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
-          <button onClick={handleToday} className="btn-primary">
-            Hari Ini
-          </button>
+
+          {/* Quick Presets */}
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => {
+                setStartDate(new Date())
+                setEndDate(addDays(new Date(), 6))
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+            >
+              7 Hari
+            </button>
+            <button
+              onClick={() => {
+                setStartDate(new Date())
+                setEndDate(addDays(new Date(), 13))
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+            >
+              14 Hari
+            </button>
+            <button
+              onClick={() => {
+                setStartDate(new Date())
+                setEndDate(addDays(new Date(), 29))
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+            >
+              30 Hari
+            </button>
+          </div>
         </div>
       </div>
 
@@ -169,7 +242,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
-            <span>Sudah input aktual</span>
+            <span>Sudah input & hadir</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-orange-100 border border-orange-300 rounded"></div>
@@ -184,6 +257,9 @@ export default function Dashboard() {
             <span>Tidak ada tugas</span>
           </div>
         </div>
+        <p className="text-xs text-blue-700 mt-3">
+          💡 Tip: Gunakan preset (7/14/30 hari) atau pilih custom date range untuk melihat periode tertentu
+        </p>
       </div>
 
       {/* Schedule Board */}
@@ -225,7 +301,7 @@ export default function Dashboard() {
                   <div className="text-sm truncate" title={pekerja.nama}>
                     {pekerja.nama}
                   </div>
-                  <div className="text-xs text-gray-500">{pekerja.nip}</div>
+                  <div className="text-xs text-gray-500">{pekerja.nik}</div>
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
