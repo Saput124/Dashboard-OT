@@ -1,23 +1,43 @@
-import { addDays, format, isSunday, startOfDay } from 'date-fns'
+import { addDays, format, isSunday, startOfDay, differenceInDays } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import type { JenisOvertime, Pekerja } from '../types'
 
+interface GenerateOptions {
+  startDate: Date
+  endDate: Date
+  selectedPekerjaIds: string[]
+  selectedOvertimeIds: string[]
+}
+
 export const generateRotationSchedule = async (
-  startDate: Date,
-  days: number = 15,
+  options: GenerateOptions,
   jenisOvertimeList: JenisOvertime[],
   pekerjaList: Pekerja[]
 ) => {
-  const schedules = []
-  const aktifPekerja = pekerjaList.filter(p => p.aktif)
+  const { startDate, endDate, selectedPekerjaIds, selectedOvertimeIds } = options
   
-  // Distribusi pekerja ke 3 grup rotasi
-  const pekerjaPerGrup = Math.ceil(aktifPekerja.length / 3)
-  const grup1 = aktifPekerja.slice(0, pekerjaPerGrup)
-  const grup2 = aktifPekerja.slice(pekerjaPerGrup, pekerjaPerGrup * 2)
-  const grup3 = aktifPekerja.slice(pekerjaPerGrup * 2)
+  const schedules = []
+  const days = differenceInDays(endDate, startDate) + 1
+  
+  // Filter selected pekerja and overtime
+  const selectedPekerja = pekerjaList.filter(p => selectedPekerjaIds.includes(p.id))
+  const selectedOvertime = jenisOvertimeList.filter(ot => selectedOvertimeIds.includes(ot.id))
+  
+  if (selectedPekerja.length === 0 || selectedOvertime.length === 0) {
+    throw new Error('Pilih minimal 1 pekerja dan 1 jenis overtime')
+  }
+
+  // Distribusi pekerja ke 3 grup rotasi (MERATA)
+  const grupSize = Math.ceil(selectedPekerja.length / 3)
+  const grup1 = selectedPekerja.slice(0, grupSize)
+  const grup2 = selectedPekerja.slice(grupSize, grupSize * 2)
+  const grup3 = selectedPekerja.slice(grupSize * 2)
 
   const grupPekerja = [grup1, grup2, grup3]
+
+  // Track beban kerja per pekerja untuk load balancing
+  const workloadTracker: { [pekerjaId: string]: number } = {}
+  selectedPekerja.forEach(p => workloadTracker[p.id] = 0)
 
   for (let i = 0; i < days; i++) {
     const currentDate = addDays(startOfDay(startDate), i)
@@ -25,10 +45,28 @@ export const generateRotationSchedule = async (
     
     // Tentukan grup yang bertugas (rotasi setiap 3 hari)
     const grupIndex = Math.floor(i / 3) % 3
+    const pekerjaGrup = grupPekerja[grupIndex]
+
+    // Sort overtime by duration (descending) untuk load balancing
+    const sortedOvertime = [...selectedOvertime].sort((a, b) => b.durasi_jam - a.durasi_jam)
     
-    for (const jenisOT of jenisOvertimeList) {
-      const pekerjaGrup = grupPekerja[grupIndex]
-      const assignedPekerja = pekerjaGrup.slice(0, jenisOT.alokasi_pekerja)
+    // Track pekerja yang sudah dapat tugas hari ini
+    const assignedToday = new Set<string>()
+    
+    for (const jenisOT of sortedOvertime) {
+      // Load balancing: prioritize pekerja dengan beban paling ringan
+      const availablePekerja = pekerjaGrup
+        .filter(p => !assignedToday.has(p.id)) // Belum dapat tugas hari ini
+        .sort((a, b) => workloadTracker[a.id] - workloadTracker[b.id]) // Sort by workload (ascending)
+      
+      // Ambil sejumlah alokasi_pekerja
+      const assignedPekerja = availablePekerja.slice(0, jenisOT.alokasi_pekerja)
+      
+      // Update workload tracker
+      assignedPekerja.forEach(p => {
+        workloadTracker[p.id] += jenisOT.durasi_jam
+        assignedToday.add(p.id)
+      })
       
       schedules.push({
         tanggal: format(currentDate, 'yyyy-MM-dd'),
