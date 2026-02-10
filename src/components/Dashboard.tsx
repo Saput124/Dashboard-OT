@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BarChart3, TrendingUp, Users, Calendar, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { formatDate, formatDateShort } from '../utils/rotation'
+import { formatDate } from '../utils/rotation'
 import { startOfWeek, endOfWeek, format } from 'date-fns'
 
 export default function Dashboard() {
