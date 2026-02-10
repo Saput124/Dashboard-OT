@@ -1,253 +1,290 @@
 import { useState, useEffect } from 'react'
-import { BarChart3, TrendingUp, Users, Calendar, Clock } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { formatDate } from '../utils/rotation'
-import { startOfWeek, endOfWeek, format } from 'date-fns'
+import { addDays, format, startOfDay } from 'date-fns'
+
+interface ScheduleData {
+  [pekerjaId: string]: {
+    nama: string
+    schedule: {
+      [tanggal: string]: {
+        jenis: string
+        durasi: number
+        grup: number
+        hasActual?: boolean
+        dilaksanakan?: boolean
+      }[]
+    }
+  }
+}
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    totalPekerja: 0,
-    rencanaMingguIni: 0,
-    aktualMingguIni: 0,
-    compliance: 0
-  })
-  const [recentActuals, setRecentActuals] = useState<any[]>([])
-  const [upcomingPlans, setUpcomingPlans] = useState<any[]>([])
+  const [scheduleData, setScheduleData] = useState<ScheduleData>({})
+  const [startDate, setStartDate] = useState(new Date())
   const [loading, setLoading] = useState(true)
+  const [pekerjaList, setPekerjaList] = useState<any[]>([])
+
+  const dates = Array.from({ length: 15 }, (_, i) => addDays(startOfDay(startDate), i))
 
   useEffect(() => {
-    fetchDashboardData()
-  }, [])
+    fetchScheduleBoard()
+  }, [startDate])
 
-  const fetchDashboardData = async () => {
+  const fetchScheduleBoard = async () => {
     setLoading(true)
+    
+    // Fetch all pekerja
+    const { data: pekerja } = await supabase
+      .from('pekerja')
+      .select('*')
+      .eq('aktif', true)
+      .order('nama', { ascending: true })
 
-    try {
-      // Total pekerja aktif
-      const { count: pekerjaCount } = await supabase
-        .from('pekerja')
-        .select('*', { count: 'exact', head: true })
-        .eq('aktif', true)
-
-      // Rencana minggu ini
-      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-      const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 })
-
-      const { count: rencanaCount } = await supabase
-        .from('rencana_overtime')
-        .select('*', { count: 'exact', head: true })
-        .gte('tanggal', format(weekStart, 'yyyy-MM-dd'))
-        .lte('tanggal', format(weekEnd, 'yyyy-MM-dd'))
-
-      // Aktual minggu ini
-      const { count: aktualCount } = await supabase
-        .from('aktual_overtime')
-        .select('*', { count: 'exact', head: true })
-        .gte('tanggal', format(weekStart, 'yyyy-MM-dd'))
-        .lte('tanggal', format(weekEnd, 'yyyy-MM-dd'))
-
-      // Compliance rate
-      const { data: complianceData } = await supabase
-        .from('aktual_overtime')
-        .select('sesuai_rencana')
-        .gte('tanggal', format(weekStart, 'yyyy-MM-dd'))
-        .lte('tanggal', format(weekEnd, 'yyyy-MM-dd'))
-
-      let complianceRate = 0
-      if (complianceData && complianceData.length > 0) {
-        const sesuai = complianceData.filter(d => d.sesuai_rencana).length
-        complianceRate = Math.round((sesuai / complianceData.length) * 100)
-      }
-
-      // Recent actuals
-      const { data: recentData } = await supabase
-        .from('aktual_overtime')
-        .select(`
-          *,
-          pekerja (*),
-          rencana_overtime (
-            *,
-            jenis_overtime (*)
-          )
-        `)
-        .order('tanggal', { ascending: false })
-        .limit(10)
-
-      // Upcoming plans
-      const { data: upcomingData } = await supabase
-        .from('rencana_overtime')
-        .select(`
-          *,
-          jenis_overtime (*)
-        `)
-        .gte('tanggal', format(new Date(), 'yyyy-MM-dd'))
-        .order('tanggal', { ascending: true })
-        .limit(10)
-
-      setStats({
-        totalPekerja: pekerjaCount || 0,
-        rencanaMingguIni: rencanaCount || 0,
-        aktualMingguIni: aktualCount || 0,
-        compliance: complianceRate
-      })
-
-      if (recentData) setRecentActuals(recentData)
-      if (upcomingData) setUpcomingPlans(upcomingData)
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error)
-    } finally {
+    if (!pekerja) {
       setLoading(false)
+      return
     }
+
+    setPekerjaList(pekerja)
+
+    // Fetch rencana for date range
+    const endDate = addDays(startDate, 14)
+    const { data: rencanaData } = await supabase
+      .from('rencana_overtime')
+      .select(`
+        *,
+        jenis_overtime (nama, durasi_jam),
+        pekerja_rencana (pekerja_id)
+      `)
+      .gte('tanggal', format(startDate, 'yyyy-MM-dd'))
+      .lte('tanggal', format(endDate, 'yyyy-MM-dd'))
+      .order('tanggal', { ascending: true })
+
+    // Fetch aktual data
+    const { data: aktualData } = await supabase
+      .from('aktual_overtime')
+      .select('*')
+      .gte('tanggal', format(startDate, 'yyyy-MM-dd'))
+      .lte('tanggal', format(endDate, 'yyyy-MM-dd'))
+
+    // Build schedule data structure
+    const schedule: ScheduleData = {}
+    
+    pekerja.forEach(p => {
+      schedule[p.id] = {
+        nama: p.nama,
+        schedule: {}
+      }
+    })
+
+    // Fill in rencana data
+    rencanaData?.forEach(rencana => {
+      const tanggal = rencana.tanggal
+      const pekerjaIds = rencana.pekerja_rencana?.map((pr: any) => pr.pekerja_id) || []
+      
+      pekerjaIds.forEach((pekerjaId: string) => {
+        if (schedule[pekerjaId]) {
+          if (!schedule[pekerjaId].schedule[tanggal]) {
+            schedule[pekerjaId].schedule[tanggal] = []
+          }
+          
+          // Check if this pekerja has aktual for this rencana
+          const aktual = aktualData?.find(a => 
+            a.rencana_overtime_id === rencana.id && 
+            a.pekerja_id === pekerjaId
+          )
+          
+          schedule[pekerjaId].schedule[tanggal].push({
+            jenis: rencana.jenis_overtime?.nama || '',
+            durasi: rencana.durasi_jam,
+            grup: rencana.grup_rotasi,
+            hasActual: !!aktual,
+            dilaksanakan: aktual?.dilaksanakan
+          })
+        }
+      })
+    })
+
+    setScheduleData(schedule)
+    setLoading(false)
+  }
+
+  const handlePrevWeek = () => {
+    setStartDate(prev => addDays(prev, -7))
+  }
+
+  const handleNextWeek = () => {
+    setStartDate(prev => addDays(prev, 7))
+  }
+
+  const handleToday = () => {
+    setStartDate(new Date())
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-600">Memuat data...</p>
+        <p className="text-gray-600">Memuat papan jadwal...</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold mb-2">Dashboard Overtime</h2>
-        <p className="text-gray-600">Overview dan statistik sistem rotasi lembur</p>
+        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+          <Calendar className="w-7 h-7" />
+          Papan Jadwal Overtime
+        </h2>
+        <p className="text-gray-600">Jadwal rotasi lembur selama 15 hari</p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-blue-100 text-sm mb-1">Total Pekerja Aktif</p>
-              <p className="text-3xl font-bold">{stats.totalPekerja}</p>
+      {/* Date Navigation */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={handlePrevWeek} className="btn-secondary p-2">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="text-center">
+              <p className="text-lg font-semibold">
+                {format(startDate, 'dd MMM yyyy')} - {format(dates[14], 'dd MMM yyyy')}
+              </p>
+              <p className="text-sm text-gray-600">15 hari</p>
             </div>
-            <Users className="w-12 h-12 text-blue-200" />
+            <button onClick={handleNextWeek} className="btn-secondary p-2">
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
-        </div>
-
-        <div className="card bg-gradient-to-br from-green-500 to-green-600 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-green-100 text-sm mb-1">Rencana Minggu Ini</p>
-              <p className="text-3xl font-bold">{stats.rencanaMingguIni}</p>
-            </div>
-            <Calendar className="w-12 h-12 text-green-200" />
-          </div>
-        </div>
-
-        <div className="card bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-purple-100 text-sm mb-1">Aktual Minggu Ini</p>
-              <p className="text-3xl font-bold">{stats.aktualMingguIni}</p>
-            </div>
-            <Clock className="w-12 h-12 text-purple-200" />
-          </div>
-        </div>
-
-        <div className="card bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-orange-100 text-sm mb-1">Compliance Rate</p>
-              <p className="text-3xl font-bold">{stats.compliance}%</p>
-            </div>
-            <TrendingUp className="w-12 h-12 text-orange-200" />
-          </div>
+          <button onClick={handleToday} className="btn-primary">
+            Hari Ini
+          </button>
         </div>
       </div>
 
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming Plans */}
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
-            Rencana Mendatang
-          </h3>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {upcomingPlans.length === 0 ? (
-              <p className="text-gray-500 text-sm">Belum ada rencana overtime</p>
-            ) : (
-              upcomingPlans.map(plan => (
-                <div key={plan.id} className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{plan.jenis_overtime?.nama}</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {formatDate(plan.tanggal)} - Grup {plan.grup_rotasi}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
-                        {plan.durasi_jam} jam
-                      </span>
-                      {plan.is_minggu && (
-                        <span className="inline-block bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium ml-1">
-                          Minggu
-                        </span>
-                      )}
-                    </div>
+      {/* Legend */}
+      <div className="card bg-blue-50 border border-blue-200">
+        <h3 className="font-semibold mb-3 text-blue-900">Keterangan:</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
+            <span>Sudah input aktual</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-orange-100 border border-orange-300 rounded"></div>
+            <span>Belum input aktual</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
+            <span>Tidak hadir</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-gray-100 border border-gray-300 rounded"></div>
+            <span>Tidak ada tugas</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Schedule Board */}
+      <div className="card overflow-x-auto">
+        <div className="min-w-max">
+          {/* Header Row - Dates */}
+          <div className="flex border-b-2 border-gray-300 bg-gray-50">
+            <div className="w-48 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Pekerja ({pekerjaList.length})
+            </div>
+            {dates.map((date, i) => {
+              const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
+              const isWeekend = date.getDay() === 0 || date.getDay() === 6
+              return (
+                <div 
+                  key={i} 
+                  className={`w-32 flex-shrink-0 p-2 text-center border-r border-gray-200 ${
+                    isToday ? 'bg-blue-100 font-bold' : ''
+                  } ${isWeekend ? 'bg-yellow-50' : ''}`}
+                >
+                  <div className="text-xs font-semibold">{format(date, 'EEE')}</div>
+                  <div className={`text-sm ${isToday ? 'text-blue-700' : ''}`}>
+                    {format(date, 'dd/MM')}
                   </div>
                 </div>
-              ))
-            )}
+              )
+            })}
           </div>
-        </div>
 
-        {/* Recent Actuals */}
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5" />
-            Aktual Terbaru
-          </h3>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {recentActuals.length === 0 ? (
-              <p className="text-gray-500 text-sm">Belum ada data aktual</p>
-            ) : (
-              recentActuals.map(actual => (
-                <div key={actual.id} className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{actual.pekerja?.nama}</h4>
-                      <p className="text-sm text-gray-600">
-                        {actual.rencana_overtime?.jenis_overtime?.nama}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formatDate(actual.tanggal)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      {actual.dilaksanakan ? (
-                        <>
-                          <span className="inline-block bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                            {actual.durasi_aktual || 0} jam
-                          </span>
-                          {!actual.sesuai_rencana && (
-                            <span className="block bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-medium mt-1">
-                              Tidak sesuai
-                            </span>
-                          )}
-                        </>
+          {/* Data Rows - Workers */}
+          {pekerjaList.map((pekerja) => {
+            const workerSchedule = scheduleData[pekerja.id]
+            if (!workerSchedule) return null
+
+            return (
+              <div key={pekerja.id} className="flex border-b border-gray-200 hover:bg-gray-50">
+                <div className="w-48 flex-shrink-0 p-3 font-medium border-r-2 border-gray-300 bg-white">
+                  <div className="text-sm truncate" title={pekerja.nama}>
+                    {pekerja.nama}
+                  </div>
+                  <div className="text-xs text-gray-500">{pekerja.nik}</div>
+                </div>
+                {dates.map((date, i) => {
+                  const tanggal = format(date, 'yyyy-MM-dd')
+                  const daySchedule = workerSchedule.schedule[tanggal] || []
+                  const isWeekend = date.getDay() === 0 || date.getDay() === 6
+
+                  return (
+                    <div 
+                      key={i} 
+                      className={`w-32 flex-shrink-0 p-1 border-r border-gray-200 ${
+                        isWeekend ? 'bg-yellow-50' : 'bg-white'
+                      }`}
+                    >
+                      {daySchedule.length === 0 ? (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="w-full h-8 bg-gray-100 rounded border border-gray-200"></div>
+                        </div>
                       ) : (
-                        <span className="inline-block bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
-                          Tidak hadir
-                        </span>
+                        <div className="space-y-1">
+                          {daySchedule.map((item, idx) => {
+                            let bgColor = 'bg-orange-100 border-orange-300'
+                            if (item.hasActual) {
+                              bgColor = item.dilaksanakan 
+                                ? 'bg-green-100 border-green-300' 
+                                : 'bg-red-100 border-red-300'
+                            }
+                            
+                            return (
+                              <div 
+                                key={idx}
+                                className={`text-xs p-1 rounded border ${bgColor}`}
+                                title={`${item.jenis} - ${item.durasi}jam - Grup ${item.grup}`}
+                              >
+                                <div className="font-semibold truncate">{item.jenis}</div>
+                                <div className="text-[10px] flex justify-between">
+                                  <span>{item.durasi}j</span>
+                                  <span>G{item.grup}</span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
-                  </div>
-                  {actual.keterangan && (
-                    <p className="text-xs text-gray-600 mt-2 italic">
-                      "{actual.keterangan}"
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+                  )
+                })}
+              </div>
+            )
+          })}
         </div>
       </div>
+
+      {pekerjaList.length === 0 && (
+        <div className="card text-center py-8 text-gray-500">
+          <Users className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+          <p>Tidak ada data pekerja</p>
+          <p className="text-sm">Tambahkan pekerja di menu Management</p>
+        </div>
+      )}
     </div>
   )
 }
