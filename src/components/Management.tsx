@@ -41,7 +41,7 @@ export default function Management() {
         // Update
         const { error } = await supabase
           .from('pekerja')
-          .update({ nama: pekerja.nama, nik: pekerja.nik, aktif: pekerja.aktif })
+          .update({ nama: pekerja.nama, nip: pekerja.nip, aktif: pekerja.aktif })
           .eq('id', pekerja.id)
         if (error) throw error
         setMessage('Pekerja berhasil diupdate')
@@ -49,7 +49,7 @@ export default function Management() {
         // Insert
         const { error } = await supabase
           .from('pekerja')
-          .insert({ nama: pekerja.nama, nik: pekerja.nik, aktif: true })
+          .insert({ nama: pekerja.nama, nip: pekerja.nip, aktif: true })
         if (error) throw error
         setMessage('Pekerja berhasil ditambahkan')
       }
@@ -194,7 +194,7 @@ export default function Management() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">NIK</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">NIP</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nama</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Aksi</th>
@@ -203,7 +203,7 @@ export default function Management() {
               <tbody className="divide-y divide-gray-200">
                 {pekerjaList.map((pekerja) => (
                   <tr key={pekerja.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm">{pekerja.nik}</td>
+                    <td className="px-4 py-3 text-sm">{pekerja.nip}</td>
                     <td className="px-4 py-3 text-sm font-medium">{pekerja.nama}</td>
                     <td className="px-4 py-3 text-sm">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -311,7 +311,7 @@ function PekerjaForm({ pekerja, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
     id: pekerja?.id || '',
     nama: pekerja?.nama || '',
-    nik: pekerja?.nik || '',
+    nip: pekerja?.nip || '',
     aktif: pekerja?.aktif ?? true
   })
 
@@ -320,13 +320,13 @@ function PekerjaForm({ pekerja, onSave, onCancel }: any) {
       <h4 className="font-semibold mb-3">{pekerja ? 'Edit Pekerja' : 'Tambah Pekerja Baru'}</h4>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="label">NIK</label>
+          <label className="label">NIP</label>
           <input
             type="text"
-            value={formData.nik}
-            onChange={(e) => setFormData({ ...formData, nik: e.target.value })}
+            value={formData.nip}
+            onChange={(e) => setFormData({ ...formData, nip: e.target.value })}
             className="input-field"
-            placeholder="NIK-0051"
+            placeholder="NIP-0051"
           />
         </div>
         <div>
