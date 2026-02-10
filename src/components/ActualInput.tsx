@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ClipboardCheck, Save } from 'lucide-react'
+import { ClipboardCheck, Save, CheckCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../utils/rotation'
 import type { RencanaOvertime, Pekerja } from '../types'
@@ -10,6 +10,7 @@ export default function ActualInput() {
   const [selectedRencana, setSelectedRencana] = useState<string>('')
   const [pekerjaList, setPekerjaList] = useState<Pekerja[]>([])
   const [aktualData, setAktualData] = useState<any[]>([])
+  const [inputStatus, setInputStatus] = useState<{ [key: string]: boolean }>({})
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -23,6 +24,7 @@ export default function ActualInput() {
   useEffect(() => {
     if (selectedRencana) {
       fetchPekerjaByRencana()
+      checkInputStatus()
     }
   }, [selectedRencana])
 
@@ -45,6 +47,22 @@ export default function ActualInput() {
     setLoading(false)
   }
 
+  const checkInputStatus = async () => {
+    // Check which rencana already have aktual input
+    const { data } = await supabase
+      .from('aktual_overtime')
+      .select('rencana_overtime_id')
+      .eq('tanggal', selectedDate)
+
+    if (data) {
+      const statusMap: { [key: string]: boolean } = {}
+      data.forEach(item => {
+        statusMap[item.rencana_overtime_id] = true
+      })
+      setInputStatus(statusMap)
+    }
+  }
+
   const fetchPekerjaByRencana = async () => {
     const { data } = await supabase
       .from('pekerja_rencana')
@@ -58,16 +76,40 @@ export default function ActualInput() {
       const pekerjaData = data.map(pr => pr.pekerja as Pekerja)
       setPekerjaList(pekerjaData)
       
-      // Initialize aktual data
-      const initialAktual = pekerjaData.map(p => ({
-        pekerja_id: p.id,
-        pekerja_nama: p.nama,
-        dilaksanakan: true,
-        durasi_aktual: null,
-        sesuai_rencana: true,
-        keterangan: ''
-      }))
-      setAktualData(initialAktual)
+      // Check if aktual already exists
+      const { data: existingAktual } = await supabase
+        .from('aktual_overtime')
+        .select('*')
+        .eq('rencana_overtime_id', selectedRencana)
+        .eq('tanggal', selectedDate)
+
+      if (existingAktual && existingAktual.length > 0) {
+        // Load existing data
+        const aktualMap = new Map(existingAktual.map(a => [a.pekerja_id, a]))
+        const initialAktual = pekerjaData.map(p => {
+          const existing = aktualMap.get(p.id)
+          return existing || {
+            pekerja_id: p.id,
+            pekerja_nama: p.nama,
+            dilaksanakan: true,
+            durasi_aktual: null,
+            sesuai_rencana: true,
+            keterangan: ''
+          }
+        })
+        setAktualData(initialAktual)
+      } else {
+        // Initialize new data
+        const initialAktual = pekerjaData.map(p => ({
+          pekerja_id: p.id,
+          pekerja_nama: p.nama,
+          dilaksanakan: true,
+          durasi_aktual: null,
+          sesuai_rencana: true,
+          keterangan: ''
+        }))
+        setAktualData(initialAktual)
+      }
     }
   }
 
@@ -108,6 +150,7 @@ export default function ActualInput() {
       if (error) throw error
 
       setMessage('Data aktual berhasil disimpan!')
+      checkInputStatus()
     } catch (error: any) {
       setMessage('Error: ' + error.message)
     } finally {
@@ -116,6 +159,7 @@ export default function ActualInput() {
   }
 
   const selectedRencanaData = rencanaList.find(r => r.id === selectedRencana)
+  const isAlreadyInput = inputStatus[selectedRencana]
 
   return (
     <div className="space-y-6">
@@ -139,17 +183,25 @@ export default function ActualInput() {
           {rencanaList.length > 0 && (
             <div>
               <label className="label">Jenis Overtime</label>
-              <select
-                value={selectedRencana}
-                onChange={(e) => setSelectedRencana(e.target.value)}
-                className="input-field"
-              >
-                {rencanaList.map(rencana => (
-                  <option key={rencana.id} value={rencana.id}>
-                    {rencana.jenis_overtime?.nama} - {rencana.durasi_jam} jam (Grup {rencana.grup_rotasi})
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedRencana}
+                  onChange={(e) => setSelectedRencana(e.target.value)}
+                  className="input-field pr-10"
+                >
+                  {rencanaList.map(rencana => (
+                    <option key={rencana.id} value={rencana.id}>
+                      {rencana.jenis_overtime?.nama} - {rencana.durasi_jam} jam (Grup {rencana.grup_rotasi})
+                      {inputStatus[rencana.id] ? ' ✓ Sudah diinput' : ''}
+                    </option>
+                  ))}
+                </select>
+                {isAlreadyInput && (
+                  <div className="absolute right-10 top-1/2 -translate-y-1/2">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -162,6 +214,15 @@ export default function ActualInput() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <p className="text-yellow-800">
               Tidak ada rencana overtime untuk tanggal {formatDate(selectedDate)}
+            </p>
+          </div>
+        )}
+
+        {isAlreadyInput && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-blue-600" />
+            <p className="text-blue-800">
+              Data aktual untuk jenis overtime ini sudah pernah diinput. Anda bisa edit jika ada perubahan.
             </p>
           </div>
         )}
@@ -256,7 +317,7 @@ export default function ActualInput() {
               className="btn-success disabled:opacity-50 flex items-center gap-2"
             >
               <Save className="w-4 h-4" />
-              {saving ? 'Menyimpan...' : 'Simpan Data Aktual'}
+              {saving ? 'Menyimpan...' : isAlreadyInput ? 'Update Data Aktual' : 'Simpan Data Aktual'}
             </button>
           </div>
         </div>
@@ -269,6 +330,7 @@ export default function ActualInput() {
           <li>• Isi durasi aktual dalam jam (bisa desimal, misal 1.5 jam)</li>
           <li>• Uncheck "Sesuai Rencana" jika durasi berbeda dari rencana</li>
           <li>• Isi keterangan jika ada penyimpangan (cuaca, pekerjaan selesai lebih cepat, dll)</li>
+          <li>• Tanda ✓ pada dropdown menunjukkan jenis OT yang sudah diinput</li>
         </ul>
       </div>
     </div>
