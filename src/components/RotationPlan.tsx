@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Calendar, Users, Clock, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateRotationSchedule, saveRotationSchedule, formatDate, getDayName } from '../utils/rotation'
-import type { JenisOvertime, Pekerja, RencanaOvertime } from '../types'
+import type { JenisOvertime, Pekerja } from '../types'
 
 export default function RotationPlan() {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
