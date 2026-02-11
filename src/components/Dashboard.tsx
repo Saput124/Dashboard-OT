@@ -24,6 +24,9 @@ export default function Dashboard() {
   const [endDate, setEndDate] = useState(addDays(new Date(), 14))
   const [loading, setLoading] = useState(true)
   const [pekerjaList, setPekerjaList] = useState<any[]>([])
+  const [jenisOvertimeList, setJenisOvertimeList] = useState<any[]>([])
+  const [filterPekerjaId, setFilterPekerjaId] = useState<string>('all')
+  const [filterJenisOTId, setFilterJenisOTId] = useState<string>('all')
 
   const totalDays = differenceInDays(endDate, startDate) + 1
   const dates = Array.from({ length: totalDays }, (_, i) => addDays(startOfDay(startDate), i))
@@ -42,12 +45,19 @@ export default function Dashboard() {
       .eq('aktif', true)
       .order('nama', { ascending: true })
 
+    // Fetch jenis overtime untuk filter
+    const { data: jenisOT } = await supabase
+      .from('jenis_overtime')
+      .select('*')
+      .order('nama', { ascending: true })
+
     if (!pekerja) {
       setLoading(false)
       return
     }
 
     setPekerjaList(pekerja)
+    if (jenisOT) setJenisOvertimeList(jenisOT)
 
     // Fetch rencana for date range
     const { data: rencanaData } = await supabase
@@ -155,6 +165,36 @@ export default function Dashboard() {
       {/* Date Navigation & Range Selector */}
       <div className="card">
         <div className="space-y-4">
+          {/* Filter Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b">
+            <div>
+              <label className="label text-xs">Filter Pekerja</label>
+              <select
+                value={filterPekerjaId}
+                onChange={(e) => setFilterPekerjaId(e.target.value)}
+                className="input-field text-sm"
+              >
+                <option value="all">Semua Pekerja</option>
+                {pekerjaList.map(p => (
+                  <option key={p.id} value={p.id}>{p.nama}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Filter Jenis Overtime</label>
+              <select
+                value={filterJenisOTId}
+                onChange={(e) => setFilterJenisOTId(e.target.value)}
+                className="input-field text-sm"
+              >
+                <option value="all">Semua Jenis OT</option>
+                {jenisOvertimeList.map(ot => (
+                  <option key={ot.id} value={ot.id}>{ot.nama}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Date Range Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -291,7 +331,9 @@ export default function Dashboard() {
           </div>
 
           {/* Data Rows - Workers */}
-          {pekerjaList.map((pekerja) => {
+          {pekerjaList
+            .filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId)
+            .map((pekerja) => {
             const workerSchedule = scheduleData[pekerja.id]
             if (!workerSchedule) return null
 
@@ -305,7 +347,10 @@ export default function Dashboard() {
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
-                  const daySchedule = workerSchedule.schedule[tanggal] || []
+                  const daySchedule = (workerSchedule.schedule[tanggal] || [])
+                    .filter(item => filterJenisOTId === 'all' || 
+                      jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
+                    )
                   const isWeekend = date.getDay() === 0 || date.getDay() === 6
 
                   return (
