@@ -37,14 +37,27 @@ export const generateRotationSchedule = async (
 
   // Track beban kerja per pekerja untuk load balancing
   const workloadTracker: { [pekerjaId: string]: number } = {}
-  selectedPekerja.forEach(p => workloadTracker[p.id] = 0)
+  const assignmentCount: { [pekerjaId: string]: number } = {}
+  selectedPekerja.forEach(p => {
+    workloadTracker[p.id] = 0
+    assignmentCount[p.id] = 0
+  })
+
+  // Track rotasi day counter (HANYA HARI KERJA - SKIP MINGGU!)
+  let workdayCounter = 0
 
   for (let i = 0; i < days; i++) {
     const currentDate = addDays(startOfDay(startDate), i)
     const isSundayDate = isSunday(currentDate)
     
-    // Tentukan grup yang bertugas (rotasi setiap 3 hari)
-    const grupIndex = Math.floor(i / 3) % 3
+    // SKIP HARI MINGGU dari assignment
+    if (isSundayDate) {
+      continue // Tidak ada assignment untuk hari Minggu
+    }
+    
+    // Tentukan grup yang bertugas (rotasi setiap 3 HARI KERJA)
+    const grupIndex = Math.floor(workdayCounter / 3) % 3
+    workdayCounter++ // Increment hanya untuk hari kerja
     
     // Sort overtime by duration (descending) untuk load balancing
     const sortedOvertime = [...selectedOvertime].sort((a, b) => b.durasi_jam - a.durasi_jam)
@@ -53,37 +66,49 @@ export const generateRotationSchedule = async (
     const assignedToday = new Set<string>()
     
     for (const jenisOT of sortedOvertime) {
-      // PERBAIKAN: Jika alokasi > grup size, ambil dari semua grup
       let availablePekerja: Pekerja[]
       
       if (jenisOT.alokasi_pekerja > grupPekerja[grupIndex].length) {
-        // Alokasi lebih besar dari grup → ambil dari semua pekerja
-        // Prioritas: grup yang bertugas dulu, baru grup lain
+        // CROSS-GROUP: Alokasi > grup size
         const primaryGrup = grupPekerja[grupIndex]
         const otherGrups = grupPekerja.filter((_, idx) => idx !== grupIndex).flat()
         
         availablePekerja = [...primaryGrup, ...otherGrups]
           .filter(p => !assignedToday.has(p.id))
           .sort((a, b) => {
-            // Prioritas: grup utama dulu, lalu sort by workload
+            // Prioritas 1: Grup utama
             const aPrimary = primaryGrup.includes(a) ? 0 : 1
             const bPrimary = primaryGrup.includes(b) ? 0 : 1
             if (aPrimary !== bPrimary) return aPrimary - bPrimary
+            
+            // Prioritas 2: Assignment count (yang paling jarang dapat)
+            if (assignmentCount[a.id] !== assignmentCount[b.id]) {
+              return assignmentCount[a.id] - assignmentCount[b.id]
+            }
+            
+            // Prioritas 3: Workload (jam paling sedikit)
             return workloadTracker[a.id] - workloadTracker[b.id]
           })
       } else {
-        // Alokasi normal → ambil dari grup yang bertugas saja
+        // NORMAL: Ambil dari grup yang bertugas
         availablePekerja = grupPekerja[grupIndex]
           .filter(p => !assignedToday.has(p.id))
-          .sort((a, b) => workloadTracker[a.id] - workloadTracker[b.id])
+          .sort((a, b) => {
+            // Prioritas assignment count dulu, baru workload
+            if (assignmentCount[a.id] !== assignmentCount[b.id]) {
+              return assignmentCount[a.id] - assignmentCount[b.id]
+            }
+            return workloadTracker[a.id] - workloadTracker[b.id]
+          })
       }
       
       // Ambil sejumlah alokasi_pekerja
       const assignedPekerja = availablePekerja.slice(0, jenisOT.alokasi_pekerja)
       
-      // Update workload tracker
+      // Update trackers
       assignedPekerja.forEach(p => {
         workloadTracker[p.id] += jenisOT.durasi_jam
+        assignmentCount[p.id] += 1 // Count berapa kali dapat tugas
         assignedToday.add(p.id)
       })
       
@@ -91,7 +116,7 @@ export const generateRotationSchedule = async (
         tanggal: format(currentDate, 'yyyy-MM-dd'),
         jenis_overtime_id: jenisOT.id,
         grup_rotasi: grupIndex + 1,
-        is_minggu: isSundayDate,
+        is_minggu: false, // Sudah di-skip, pasti bukan Minggu
         durasi_jam: jenisOT.durasi_jam,
         assigned_pekerja: assignedPekerja,
         jenis_overtime: jenisOT
