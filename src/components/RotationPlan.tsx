@@ -21,7 +21,7 @@ export default function RotationPlan() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
-  const [rotationDays, setRotationDays] = useState(4) // Rotasi berapa hari sekali
+  const [rotationSessions, setRotationSessions] = useState(4) // Dibagi berapa sesi/rotasi
 
   const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
 
@@ -104,7 +104,7 @@ export default function RotationPlan() {
           endDate: new Date(endDate),
           selectedPekerjaIds,
           selectedOvertimeIds,
-          rotationDays,
+          rotationSessions,
           excludeSunday: true
         },
         jenisOvertimeList,
@@ -290,19 +290,21 @@ export default function RotationPlan() {
                   />
                 </div>
                 <div>
-                  <label className="label">Rotasi Setiap (Hari)</label>
+                  <label className="label">Jumlah Sesi Rotasi</label>
                   <select
-                    value={rotationDays}
-                    onChange={(e) => setRotationDays(Number(e.target.value))}
+                    value={rotationSessions}
+                    onChange={(e) => setRotationSessions(Number(e.target.value))}
                     className="input-field"
+                    title="Hari kerja akan dibagi menjadi berapa sesi agar merata"
                   >
-                    <option value={1}>1 Hari</option>
-                    <option value={2}>2 Hari</option>
-                    <option value={3}>3 Hari</option>
-                    <option value={4}>4 Hari</option>
-                    <option value={5}>5 Hari</option>
-                    <option value={6}>6 Hari</option>
-                    <option value={7}>7 Hari</option>
+                    <option value={1}>1 Sesi (Tidak rotasi)</option>
+                    <option value={2}>2 Sesi</option>
+                    <option value={3}>3 Sesi</option>
+                    <option value={4}>4 Sesi</option>
+                    <option value={5}>5 Sesi</option>
+                    <option value={6}>6 Sesi</option>
+                    <option value={7}>7 Sesi</option>
+                    <option value={8}>8 Sesi</option>
                   </select>
                 </div>
                 <div>
@@ -525,11 +527,12 @@ export default function RotationPlan() {
           <div className="card bg-blue-50 border border-blue-200">
             <h3 className="font-semibold mb-2 text-blue-900">Informasi Algoritma</h3>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Rotasi dilakukan setiap <strong>{rotationDays} hari</strong> sekali</li>
+              <li>• Hari kerja akan dibagi menjadi <strong>{rotationSessions} sesi rotasi</strong></li>
               <li>• <strong>Hari Minggu otomatis di-skip</strong> dari jadwal (tidak dihitung)</li>
               <li>• <strong>Distribusi Merata</strong>: Setiap pekerja mendapat jumlah jadwal yang seimbang</li>
               <li>• <strong>Auto-Balance</strong>: Pekerja yang kurang jadwal akan di-replace ke hari terakhir</li>
-              <li>• Contoh: 20 pekerja, alokasi 13, rotasi {rotationDays} hari → sistem pastikan semua dapat jadwal merata</li>
+              <li>• <strong>Contoh</strong>: 25 pekerja, alokasi 10, 13 hari kerja, pilih 3 sesi → 
+                   Sesi 1 (5 hari), Sesi 2 (4 hari), Sesi 3 (4 hari)</li>
             </ul>
           </div>
         </div>
