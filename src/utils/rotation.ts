@@ -76,26 +76,35 @@ export const generateBalancedRotationSchedule = async (
     const tempSchedule: { [tanggal: string]: Pekerja[] } = {}
     
     // FASE 1: Generate rotasi normal berdasarkan rotationSessions
-    let pekerjaIndex = 0
-    let currentSession = 1
+    // Key fix: Assign pekerja yang SAMA untuk semua hari dalam satu sesi
+    let pekerjaStartIndex = 0
     
-    for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
-      const currentDate = workDays[dayIndex]
-      const tanggal = format(currentDate, 'yyyy-MM-dd')
-      tempSchedule[tanggal] = []
+    for (let sessionIdx = 0; sessionIdx < rotationSessions; sessionIdx++) {
+      // Tentukan range hari untuk sesi ini
+      const sessionStartDay = sessionIdx * daysPerSession
+      const sessionEndDay = Math.min(sessionStartDay + daysPerSession, totalWorkDays)
       
-      // Update session jika sudah lewat daysPerSession
-      if (dayIndex > 0 && dayIndex % daysPerSession === 0 && currentSession < rotationSessions) {
-        currentSession++
+      // Pilih pekerja untuk sesi ini (fixed list)
+      const sessionPekerja: Pekerja[] = []
+      for (let i = 0; i < alokasi; i++) {
+        const pekerja = selectedPekerja[(pekerjaStartIndex + i) % totalPekerja]
+        sessionPekerja.push(pekerja)
       }
       
-      // Assign pekerja untuk hari ini
-      for (let slot = 0; slot < alokasi; slot++) {
-        const pekerja = selectedPekerja[pekerjaIndex % totalPekerja]
-        tempSchedule[tanggal].push(pekerja)
-        assignments[pekerja.id]++
-        pekerjaIndex++
+      // Assign pekerja yang sama untuk semua hari dalam sesi ini
+      for (let dayIndex = sessionStartDay; dayIndex < sessionEndDay; dayIndex++) {
+        const currentDate = workDays[dayIndex]
+        const tanggal = format(currentDate, 'yyyy-MM-dd')
+        tempSchedule[tanggal] = [...sessionPekerja] // Copy array
+        
+        // Update assignment count
+        sessionPekerja.forEach(p => {
+          assignments[p.id]++
+        })
       }
+      
+      // Move ke pekerja berikutnya untuk sesi berikutnya
+      pekerjaStartIndex += alokasi
     }
     
     // FASE 2: Balance dengan replacement
