@@ -332,7 +332,28 @@ export default function Dashboard() {
 
           {/* Data Rows - Workers */}
           {pekerjaList
-            .filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId)
+            .filter(p => {
+              // Filter berdasarkan pekerja
+              if (filterPekerjaId !== 'all' && p.id !== filterPekerjaId) {
+                return false
+              }
+              
+              // Filter berdasarkan jenis OT: hanya tampilkan pekerja yang punya jadwal OT tersebut
+              if (filterJenisOTId !== 'all') {
+                const workerSchedule = scheduleData[p.id]
+                if (!workerSchedule) return false
+                
+                // Cek apakah pekerja ini punya jadwal untuk jenis OT yang dipilih
+                const hasThisOT = Object.values(workerSchedule.schedule).some(daySchedule => 
+                  daySchedule.some(item => 
+                    jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
+                  )
+                )
+                return hasThisOT
+              }
+              
+              return true
+            })
             .map((pekerja) => {
             const workerSchedule = scheduleData[pekerja.id]
             if (!workerSchedule) return null
