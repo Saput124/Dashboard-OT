@@ -7,17 +7,31 @@ interface GenerateOptions {
   endDate: Date
   selectedPekerjaIds: string[]
   selectedOvertimeIds: string[]
+  rotationDays?: number // Berapa hari sekali rotasi (default 4)
+  excludeSunday?: boolean // Skip hari Minggu
 }
 
-export const generateRotationSchedule = async (
+/**
+ * Algoritma Generate dengan Balance yang Lebih Baik
+ * Contoh: 20 pekerja, alokasi 13, rotasi 4 hari, 12 hari kerja
+ * - Hari 1-4: pekerja 1-13
+ * - Hari 5-8: pekerja 14-20 + 1-6 (7 dari pool kedua, 6 dari awal)
+ * - Hari 9-12: pekerja 7-19
+ * - Balance: pekerja 20 dapat kurang, maka replace di hari 9-12
+ */
+export const generateBalancedRotationSchedule = async (
   options: GenerateOptions,
   jenisOvertimeList: JenisOvertime[],
   pekerjaList: Pekerja[]
 ) => {
-  const { startDate, endDate, selectedPekerjaIds, selectedOvertimeIds } = options
-  
-  const schedules = []
-  const days = differenceInDays(endDate, startDate) + 1
+  const { 
+    startDate, 
+    endDate, 
+    selectedPekerjaIds, 
+    selectedOvertimeIds,
+    rotationDays = 4,
+    excludeSunday = true
+  } = options
   
   // Filter selected pekerja and overtime
   const selectedPekerja = pekerjaList.filter(p => selectedPekerjaIds.includes(p.id))
@@ -27,105 +41,123 @@ export const generateRotationSchedule = async (
     throw new Error('Pilih minimal 1 pekerja dan 1 jenis overtime')
   }
 
-  // Distribusi pekerja ke 3 grup rotasi (MERATA)
-  const grupSize = Math.ceil(selectedPekerja.length / 3)
-  const grup1 = selectedPekerja.slice(0, grupSize)
-  const grup2 = selectedPekerja.slice(grupSize, grupSize * 2)
-  const grup3 = selectedPekerja.slice(grupSize * 2)
-
-  const grupPekerja = [grup1, grup2, grup3]
-
-  // Track beban kerja per pekerja untuk load balancing
-  const workloadTracker: { [pekerjaId: string]: number } = {}
-  const assignmentCount: { [pekerjaId: string]: number } = {}
-  selectedPekerja.forEach(p => {
-    workloadTracker[p.id] = 0
-    assignmentCount[p.id] = 0
-  })
-
-  // Track rotasi day counter (HANYA HARI KERJA - SKIP MINGGU!)
-  let workdayCounter = 0
-
-  for (let i = 0; i < days; i++) {
+  // Hitung hari kerja
+  const totalDays = differenceInDays(endDate, startDate) + 1
+  const workDays: Date[] = []
+  for (let i = 0; i < totalDays; i++) {
     const currentDate = addDays(startOfDay(startDate), i)
-    const isSundayDate = isSunday(currentDate)
+    if (excludeSunday && isSunday(currentDate)) {
+      continue
+    }
+    workDays.push(currentDate)
+  }
+
+  const totalWorkDays = workDays.length
+  const schedules: any[] = []
+  
+  // Process per jenis overtime
+  for (const jenisOT of selectedOvertime) {
+    const alokasi = jenisOT.alokasi_pekerja
+    const totalPekerja = selectedPekerja.length
     
-    // SKIP HARI MINGGU dari assignment
-    if (isSundayDate) {
-      continue // Tidak ada assignment untuk hari Minggu
+    // Hitung ideal assignment
+    const totalSlots = totalWorkDays * alokasi
+    const idealPerPerson = Math.floor(totalSlots / totalPekerja)
+    const remainder = totalSlots % totalPekerja
+    
+    // Track assignment per pekerja untuk OT ini
+    const assignments: { [pekerjaId: string]: number } = {}
+    selectedPekerja.forEach(p => { assignments[p.id] = 0 })
+    
+    // Temporary schedule untuk OT ini (index adalah tanggal)
+    const tempSchedule: { [tanggal: string]: Pekerja[] } = {}
+    
+    // FASE 1: Generate rotasi normal berdasarkan rotationDays
+    let pekerjaIndex = 0
+    
+    for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
+      const currentDate = workDays[dayIndex]
+      const tanggal = format(currentDate, 'yyyy-MM-dd')
+      tempSchedule[tanggal] = []
+      
+      // Assign pekerja untuk hari ini
+      for (let slot = 0; slot < alokasi; slot++) {
+        const pekerja = selectedPekerja[pekerjaIndex % totalPekerja]
+        tempSchedule[tanggal].push(pekerja)
+        assignments[pekerja.id]++
+        pekerjaIndex++
+      }
     }
     
-    // Tentukan grup yang bertugas (rotasi setiap 3 HARI KERJA)
-    const grupIndex = Math.floor(workdayCounter / 3) % 3
-    workdayCounter++ // Increment hanya untuk hari kerja
+    // FASE 2: Balance dengan replacement
+    // Cari pekerja yang kurang jadwal (di bawah ideal)
+    const underAssigned = selectedPekerja
+      .filter(p => assignments[p.id] < idealPerPerson)
+      .sort((a, b) => assignments[a.id] - assignments[b.id]) // yang paling sedikit duluan
     
-    // Sort overtime by duration (descending) untuk load balancing
-    const sortedOvertime = [...selectedOvertime].sort((a, b) => b.durasi_jam - a.durasi_jam)
-    
-    // Track pekerja yang sudah dapat tugas hari ini
-    const assignedToday = new Set<string>()
-    
-    for (const jenisOT of sortedOvertime) {
-      let availablePekerja: Pekerja[]
-      
-      if (jenisOT.alokasi_pekerja > grupPekerja[grupIndex].length) {
-        // CROSS-GROUP: Alokasi > grup size
-        const primaryGrup = grupPekerja[grupIndex]
-        const otherGrups = grupPekerja.filter((_, idx) => idx !== grupIndex).flat()
+    if (underAssigned.length > 0) {
+      // Replace dari hari-hari terakhir
+      for (const underPekerja of underAssigned) {
+        const needMore = idealPerPerson - assignments[underPekerja.id]
+        if (needMore <= 0) continue
         
-        availablePekerja = [...primaryGrup, ...otherGrups]
-          .filter(p => !assignedToday.has(p.id))
-          .sort((a, b) => {
-            // Prioritas 1: Grup utama
-            const aPrimary = primaryGrup.includes(a) ? 0 : 1
-            const bPrimary = primaryGrup.includes(b) ? 0 : 1
-            if (aPrimary !== bPrimary) return aPrimary - bPrimary
+        let replaced = 0
+        
+        // Mulai dari hari terakhir, cari yang bisa di-replace
+        for (let dayIndex = totalWorkDays - 1; dayIndex >= 0 && replaced < needMore; dayIndex--) {
+          const tanggal = format(workDays[dayIndex], 'yyyy-MM-dd')
+          const dayAssignments = tempSchedule[tanggal]
+          
+          // Cari pekerja yang over-assigned di hari ini untuk di-replace
+          for (let i = 0; i < dayAssignments.length; i++) {
+            const currentPekerja = dayAssignments[i]
             
-            // Prioritas 2: Assignment count (yang paling jarang dapat)
-            if (assignmentCount[a.id] !== assignmentCount[b.id]) {
-              return assignmentCount[a.id] - assignmentCount[b.id]
+            // Replace jika: 
+            // 1. Pekerja ini punya assignment > ideal
+            // 2. Bukan pekerja yang sama dengan yang butuh lebih
+            // 3. Pekerja under belum ada di hari ini
+            if (
+              assignments[currentPekerja.id] > idealPerPerson && 
+              currentPekerja.id !== underPekerja.id &&
+              !dayAssignments.some(p => p.id === underPekerja.id)
+            ) {
+              // Replace
+              dayAssignments[i] = underPekerja
+              assignments[currentPekerja.id]--
+              assignments[underPekerja.id]++
+              replaced++
+              break // pindah ke hari berikutnya
             }
-            
-            // Prioritas 3: Workload (jam paling sedikit)
-            return workloadTracker[a.id] - workloadTracker[b.id]
-          })
-      } else {
-        // NORMAL: Ambil dari grup yang bertugas
-        availablePekerja = grupPekerja[grupIndex]
-          .filter(p => !assignedToday.has(p.id))
-          .sort((a, b) => {
-            // Prioritas assignment count dulu, baru workload
-            if (assignmentCount[a.id] !== assignmentCount[b.id]) {
-              return assignmentCount[a.id] - assignmentCount[b.id]
-            }
-            return workloadTracker[a.id] - workloadTracker[b.id]
-          })
+          }
+        }
       }
-      
-      // Ambil sejumlah alokasi_pekerja
-      const assignedPekerja = availablePekerja.slice(0, jenisOT.alokasi_pekerja)
-      
-      // Update trackers
-      assignedPekerja.forEach(p => {
-        workloadTracker[p.id] += jenisOT.durasi_jam
-        assignmentCount[p.id] += 1 // Count berapa kali dapat tugas
-        assignedToday.add(p.id)
-      })
+    }
+    
+    // Convert to final schedule dengan grup rotasi
+    Object.entries(tempSchedule).forEach(([tanggal, assignedPekerja]) => {
+      const dayIndex = workDays.findIndex(d => format(d, 'yyyy-MM-dd') === tanggal)
+      const grupRotasi = Math.floor(dayIndex / rotationDays) + 1
       
       schedules.push({
-        tanggal: format(currentDate, 'yyyy-MM-dd'),
+        tanggal,
         jenis_overtime_id: jenisOT.id,
-        grup_rotasi: grupIndex + 1,
-        is_minggu: false, // Sudah di-skip, pasti bukan Minggu
+        grup_rotasi: grupRotasi,
+        is_minggu: false,
         durasi_jam: jenisOT.durasi_jam,
         assigned_pekerja: assignedPekerja,
         jenis_overtime: jenisOT
       })
-    }
+    })
   }
-
+  
+  // Sort by tanggal
+  schedules.sort((a, b) => a.tanggal.localeCompare(b.tanggal))
+  
   return schedules
 }
+
+// Export alias untuk backward compatibility
+export const generateRotationSchedule = generateBalancedRotationSchedule
 
 export const saveRotationSchedule = async (schedules: any[]) => {
   try {
