@@ -21,6 +21,7 @@ export default function RotationPlan() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
+  const [rotationDays, setRotationDays] = useState(4) // Rotasi berapa hari sekali
 
   const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
 
@@ -102,7 +103,9 @@ export default function RotationPlan() {
           startDate: new Date(startDate),
           endDate: new Date(endDate),
           selectedPekerjaIds,
-          selectedOvertimeIds
+          selectedOvertimeIds,
+          rotationDays,
+          excludeSunday: true
         },
         jenisOvertimeList,
         pekerjaList
@@ -267,7 +270,7 @@ export default function RotationPlan() {
 
             <div className="space-y-6">
               {/* Date Range */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="label">Tanggal Mulai</label>
                   <input
@@ -285,6 +288,22 @@ export default function RotationPlan() {
                     onChange={(e) => setEndDate(e.target.value)}
                     className="input-field"
                   />
+                </div>
+                <div>
+                  <label className="label">Rotasi Setiap (Hari)</label>
+                  <select
+                    value={rotationDays}
+                    onChange={(e) => setRotationDays(Number(e.target.value))}
+                    className="input-field"
+                  >
+                    <option value={1}>1 Hari</option>
+                    <option value={2}>2 Hari</option>
+                    <option value={3}>3 Hari</option>
+                    <option value={4}>4 Hari</option>
+                    <option value={5}>5 Hari</option>
+                    <option value={6}>6 Hari</option>
+                    <option value={7}>7 Hari</option>
+                  </select>
                 </div>
                 <div>
                   <label className="label">Total Hari</label>
@@ -506,11 +525,11 @@ export default function RotationPlan() {
           <div className="card bg-blue-50 border border-blue-200">
             <h3 className="font-semibold mb-2 text-blue-900">Informasi Algoritma</h3>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Rotasi dilakukan setiap 3 hari sekali (Grup 1, 2, 3 bergantian)</li>
-              <li>• <strong>Load Balancing</strong>: Pekerja dengan beban paling ringan diprioritaskan</li>
-              <li>• <strong>Fair Distribution</strong>: Tidak ada pekerja yang terlewat (gap)</li>
-              <li>• Jika ada OT 2 jam dan OT 1 jam, sistem akan balance agar total jam merata</li>
-              <li>• Setiap pekerja maksimal 1 tugas per hari per jenis OT</li>
+              <li>• Rotasi dilakukan setiap <strong>{rotationDays} hari</strong> sekali</li>
+              <li>• <strong>Hari Minggu otomatis di-skip</strong> dari jadwal (tidak dihitung)</li>
+              <li>• <strong>Distribusi Merata</strong>: Setiap pekerja mendapat jumlah jadwal yang seimbang</li>
+              <li>• <strong>Auto-Balance</strong>: Pekerja yang kurang jadwal akan di-replace ke hari terakhir</li>
+              <li>• Contoh: 20 pekerja, alokasi 13, rotasi {rotationDays} hari → sistem pastikan semua dapat jadwal merata</li>
             </ul>
           </div>
         </div>
