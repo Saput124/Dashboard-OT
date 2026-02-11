@@ -45,8 +45,7 @@ export const generateRotationSchedule = async (
     
     // Tentukan grup yang bertugas (rotasi setiap 3 hari)
     const grupIndex = Math.floor(i / 3) % 3
-    const pekerjaGrup = grupPekerja[grupIndex]
-
+    
     // Sort overtime by duration (descending) untuk load balancing
     const sortedOvertime = [...selectedOvertime].sort((a, b) => b.durasi_jam - a.durasi_jam)
     
@@ -54,10 +53,30 @@ export const generateRotationSchedule = async (
     const assignedToday = new Set<string>()
     
     for (const jenisOT of sortedOvertime) {
-      // Load balancing: prioritize pekerja dengan beban paling ringan
-      const availablePekerja = pekerjaGrup
-        .filter(p => !assignedToday.has(p.id)) // Belum dapat tugas hari ini
-        .sort((a, b) => workloadTracker[a.id] - workloadTracker[b.id]) // Sort by workload (ascending)
+      // PERBAIKAN: Jika alokasi > grup size, ambil dari semua grup
+      let availablePekerja: Pekerja[]
+      
+      if (jenisOT.alokasi_pekerja > grupPekerja[grupIndex].length) {
+        // Alokasi lebih besar dari grup → ambil dari semua pekerja
+        // Prioritas: grup yang bertugas dulu, baru grup lain
+        const primaryGrup = grupPekerja[grupIndex]
+        const otherGrups = grupPekerja.filter((_, idx) => idx !== grupIndex).flat()
+        
+        availablePekerja = [...primaryGrup, ...otherGrups]
+          .filter(p => !assignedToday.has(p.id))
+          .sort((a, b) => {
+            // Prioritas: grup utama dulu, lalu sort by workload
+            const aPrimary = primaryGrup.includes(a) ? 0 : 1
+            const bPrimary = primaryGrup.includes(b) ? 0 : 1
+            if (aPrimary !== bPrimary) return aPrimary - bPrimary
+            return workloadTracker[a.id] - workloadTracker[b.id]
+          })
+      } else {
+        // Alokasi normal → ambil dari grup yang bertugas saja
+        availablePekerja = grupPekerja[grupIndex]
+          .filter(p => !assignedToday.has(p.id))
+          .sort((a, b) => workloadTracker[a.id] - workloadTracker[b.id])
+      }
       
       // Ambil sejumlah alokasi_pekerja
       const assignedPekerja = availablePekerja.slice(0, jenisOT.alokasi_pekerja)
