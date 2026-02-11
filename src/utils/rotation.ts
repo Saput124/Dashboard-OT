@@ -7,17 +7,18 @@ interface GenerateOptions {
   endDate: Date
   selectedPekerjaIds: string[]
   selectedOvertimeIds: string[]
-  rotationDays?: number // Berapa hari sekali rotasi (default 4)
+  rotationSessions?: number // Dibagi berapa sesi/rotasi (default 4)
   excludeSunday?: boolean // Skip hari Minggu
 }
 
 /**
  * Algoritma Generate dengan Balance yang Lebih Baik
- * Contoh: 20 pekerja, alokasi 13, rotasi 4 hari, 12 hari kerja
- * - Hari 1-4: pekerja 1-13
- * - Hari 5-8: pekerja 14-20 + 1-6 (7 dari pool kedua, 6 dari awal)
- * - Hari 9-12: pekerja 7-19
- * - Balance: pekerja 20 dapat kurang, maka replace di hari 9-12
+ * Contoh: 25 pekerja, alokasi 10, 13 hari kerja, pilih rotasi 3 sesi
+ * - Hari dibagi 3 sesi: 5 hari, 4 hari, 4 hari
+ * - Sesi 1 (5 hari): pekerja 1-10 (dapat 5x)
+ * - Sesi 2 (4 hari): pekerja 11-20 (dapat 4x)
+ * - Sesi 3 (4 hari): pekerja 21-25 + 1-5 (dapat 4x)
+ * - Balance: pekerja 1-10 dapat 5x, sisanya 4x (relatif merata)
  */
 export const generateBalancedRotationSchedule = async (
   options: GenerateOptions,
@@ -29,7 +30,7 @@ export const generateBalancedRotationSchedule = async (
     endDate, 
     selectedPekerjaIds, 
     selectedOvertimeIds,
-    rotationDays = 4,
+    rotationSessions = 4,
     excludeSunday = true
   } = options
   
@@ -63,7 +64,9 @@ export const generateBalancedRotationSchedule = async (
     // Hitung ideal assignment
     const totalSlots = totalWorkDays * alokasi
     const idealPerPerson = Math.floor(totalSlots / totalPekerja)
-    const remainder = totalSlots % totalPekerja
+    
+    // Hitung hari per sesi (dibagi merata sebisa mungkin)
+    const daysPerSession = Math.ceil(totalWorkDays / rotationSessions)
     
     // Track assignment per pekerja untuk OT ini
     const assignments: { [pekerjaId: string]: number } = {}
@@ -72,13 +75,19 @@ export const generateBalancedRotationSchedule = async (
     // Temporary schedule untuk OT ini (index adalah tanggal)
     const tempSchedule: { [tanggal: string]: Pekerja[] } = {}
     
-    // FASE 1: Generate rotasi normal berdasarkan rotationDays
+    // FASE 1: Generate rotasi normal berdasarkan rotationSessions
     let pekerjaIndex = 0
+    let currentSession = 1
     
     for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
       const currentDate = workDays[dayIndex]
       const tanggal = format(currentDate, 'yyyy-MM-dd')
       tempSchedule[tanggal] = []
+      
+      // Update session jika sudah lewat daysPerSession
+      if (dayIndex > 0 && dayIndex % daysPerSession === 0 && currentSession < rotationSessions) {
+        currentSession++
+      }
       
       // Assign pekerja untuk hari ini
       for (let slot = 0; slot < alokasi; slot++) {
@@ -133,10 +142,11 @@ export const generateBalancedRotationSchedule = async (
       }
     }
     
-    // Convert to final schedule dengan grup rotasi
+    // Convert to final schedule dengan grup rotasi berdasarkan session
     Object.entries(tempSchedule).forEach(([tanggal, assignedPekerja]) => {
       const dayIndex = workDays.findIndex(d => format(d, 'yyyy-MM-dd') === tanggal)
-      const grupRotasi = Math.floor(dayIndex / rotationDays) + 1
+      const daysPerSession = Math.ceil(totalWorkDays / rotationSessions)
+      const grupRotasi = Math.floor(dayIndex / daysPerSession) + 1
       
       schedules.push({
         tanggal,
