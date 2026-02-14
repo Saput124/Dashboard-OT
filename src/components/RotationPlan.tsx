@@ -21,7 +21,7 @@ export default function RotationPlan() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
-  const [rotationSessions, setRotationSessions] = useState(4) // Dibagi berapa sesi/rotasi
+  const [intervalDays, setIntervalDays] = useState(4) // Rotasi setiap berapa hari
 
   const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
 
@@ -104,8 +104,8 @@ export default function RotationPlan() {
           endDate: new Date(endDate),
           selectedPekerjaIds,
           selectedOvertimeIds,
-          rotationSessions,
-          excludeSunday: true
+          intervalDays,
+          excludeWeekends: true
         },
         jenisOvertimeList,
         pekerjaList
@@ -290,21 +290,20 @@ export default function RotationPlan() {
                   />
                 </div>
                 <div>
-                  <label className="label">Jumlah Sesi Rotasi</label>
+                  <label className="label">Rotasi Setiap (Hari)</label>
                   <select
-                    value={rotationSessions}
-                    onChange={(e) => setRotationSessions(Number(e.target.value))}
+                    value={intervalDays}
+                    onChange={(e) => setIntervalDays(Number(e.target.value))}
                     className="input-field"
-                    title="Hari kerja akan dibagi menjadi berapa sesi agar merata"
+                    title="Kelompok yang sama bekerja bersama setiap X hari, lalu ganti"
                   >
-                    <option value={1}>1 Sesi (Tidak rotasi)</option>
-                    <option value={2}>2 Sesi</option>
-                    <option value={3}>3 Sesi</option>
-                    <option value={4}>4 Sesi</option>
-                    <option value={5}>5 Sesi</option>
-                    <option value={6}>6 Sesi</option>
-                    <option value={7}>7 Sesi</option>
-                    <option value={8}>8 Sesi</option>
+                    <option value={1}>1 Hari</option>
+                    <option value={2}>2 Hari</option>
+                    <option value={3}>3 Hari</option>
+                    <option value={4}>4 Hari (Rekomendasi)</option>
+                    <option value={5}>5 Hari</option>
+                    <option value={6}>6 Hari</option>
+                    <option value={7}>7 Hari</option>
                   </select>
                 </div>
                 <div>
@@ -527,12 +526,11 @@ export default function RotationPlan() {
           <div className="card bg-blue-50 border border-blue-200">
             <h3 className="font-semibold mb-2 text-blue-900">Informasi Algoritma</h3>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Hari kerja akan dibagi menjadi <strong>{rotationSessions} sesi rotasi</strong></li>
-              <li>• <strong>Hari Minggu otomatis di-skip</strong> dari jadwal (tidak dihitung)</li>
-              <li>• <strong>Distribusi Merata</strong>: Setiap pekerja mendapat jumlah jadwal yang seimbang</li>
-              <li>• <strong>Auto-Balance</strong>: Pekerja yang kurang jadwal akan di-replace ke hari terakhir</li>
-              <li>• <strong>Contoh</strong>: 25 pekerja, alokasi 10, 13 hari kerja, pilih 3 sesi → 
-                   Sesi 1 (5 hari), Sesi 2 (4 hari), Sesi 3 (4 hari)</li>
+              <li>• Kelompok yang sama bekerja bersama setiap <strong>{intervalDays} hari</strong>, lalu ganti</li>
+              <li>• <strong>Skip otomatis</strong>: Hari Minggu & tanggal merah (Imlek, Lebaran, dll)</li>
+              <li>• <strong>Distribusi berdasarkan JAM OT</strong>: Bukan cuma jumlah hari, tapi total jam lembur</li>
+              <li>• <strong>Auto-Balance</strong>: Pekerja yang kurang jam OT akan di-replace ke periode terakhir</li>
+              <li>• <strong>Contoh</strong>: 16-28 Feb → Skip 17 Feb (Imlek), 22 Feb (Minggu) → Sisa 11 hari kerja</li>
             </ul>
           </div>
         </div>
