@@ -77,37 +77,40 @@ const fetchExistingAssignments = async (
 }
 
 /**
- * Algoritma Fair Rotation dengan Round-Robin + MAX HOURS PER DAY CONSTRAINT
+ * Algoritma Smart Assignment dengan MAX HOURS PER DAY CONSTRAINT
  * 
  * TUJUAN: 
  * 1. Distribusi JAM OT yang merata untuk semua pekerja
  * 2. BATASAN: Maksimal 2 jam OT per hari per pekerja
+ * 3. SUPPORT: Multi-generate (Lightrap + Recolonisasi + Kupu Pagi dalam periode sama)
  * 
  * CARA KERJA:
- * 1. Kelompok pekerja yang sama bekerja bersama untuk X hari (intervalDays)
- * 2. Track TOTAL JAM OT per pekerja (bukan cuma jumlah hari)
- * 3. Auto-balance: replace pekerja yang over dengan yang under
- * 4. **BARU**: Check existing assignments & skip jika sudah >= maxHoursPerDay
+ * 1. Fetch existing assignments dari database
+ * 2. Untuk setiap hari:
+ *    a. Build available pool (pekerja yang bisa ditambah: currentWorkload + durasi <= maxHours)
+ *    b. Sort by priority: daily workload → assignment count → total jam
+ *    c. Assign dari pool (ambil top N)
+ * 3. Skip auto-balance jika multi-generate (untuk avoid conflict)
  * 
  * CONTOH MULTI-GENERATE:
  * 
- * Generate 1 (Lightrap 2 jam):
+ * Generate 1 (Lightrap 2 jam, alokasi 13):
+ * - Pilih 31 pekerja
  * - 16 Feb: Pekerja 1-13 → 2 jam
+ * - Save to database
  * 
- * Generate 2 (Recolonisasi 1 jam):
- * - 16 Feb: Pekerja 14-21 → 1 jam
- * 
- * Generate 3 (Kupu Pagi 1 jam, alokasi 26):
- * - Check existing workload 16 Feb:
- *   - Pekerja 1-13: 2 jam (SKIP - sudah max!)
- *   - Pekerja 14-21: 1 jam (BISA - baru 1 jam)
- *   - Pekerja 22-31: 0 jam (BISA)
- * - Assign Kupu Pagi: Pekerja 14-21 (8 orang) + Pekerja 22-39 (18 orang) = 26 ✅
+ * Generate 2 (Kupu Pagi 1 jam, alokasi 26):
+ * - Pilih 39 pekerja (31 dari Lightrap + 8 tambahan)
+ * - Fetch existing: Pekerja 1-13 = 2 jam
+ * - Build pool 16 Feb:
+ *   - Pekerja 1-13: 2+1=3 jam > 2 → SKIP ❌
+ *   - Pekerja 14-39: 0+1=1 jam <= 2 → AVAILABLE ✅ (26 pekerja)
+ * - Assign: Pekerja 14-39 (26 pekerja) ✅
  * 
  * HASIL:
- * - Pekerja 1-13: 2 jam (Lightrap only)
- * - Pekerja 14-21: 2 jam (Recolonisasi 1 jam + Kupu Pagi 1 jam)
- * - Pekerja 22-39: 1 jam (Kupu Pagi only)
+ * - Pekerja 1-13:  2 jam (Lightrap only)
+ * - Pekerja 14-39: 1 jam (Kupu Pagi only)
+ * - TIDAK ADA yang > 2 jam! ✅
  */
 export const generateBalancedRotationSchedule = async (
   options: GenerateOptions,
@@ -186,17 +189,19 @@ export const generateBalancedRotationSchedule = async (
     const tempSchedule: { [tanggal: string]: Pekerja[] } = {}
     
     // ========================================
-    // FASE 1: Round-Robin dengan Interval + MAX HOURS CHECK
+    // FASE 1: Smart Assignment dengan Prioritas Available Workers
     // ========================================
+    // TIDAK PAKAI strict round-robin index!
+    // Prioritas: pekerja yang BISA ditambah (< maxHours)
     
-    let pekerjaStartIndex = 0
-    let currentPeriod = 0
+    let currentRotationGroup = 0
+    const assignedDaysCount: { [pekerjaId: string]: number } = {}
+    selectedPekerja.forEach(p => { assignedDaysCount[p.id] = 0 })
     
     for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
-      // Ganti periode setiap intervalDays
+      // Ganti grup setiap intervalDays (optional - untuk variety)
       if (dayIndex > 0 && dayIndex % intervalDays === 0) {
-        currentPeriod++
-        pekerjaStartIndex += alokasi
+        currentRotationGroup++
       }
       
       const currentDate = workDays[dayIndex]
@@ -205,142 +210,142 @@ export const generateBalancedRotationSchedule = async (
       // Get existing workload untuk hari ini
       const existingWorkload = existingWorkloadMap[tanggal] || {}
       
-      // Pilih pekerja untuk hari ini
-      const periodPekerja: Pekerja[] = []
-      let attempts = 0
-      const maxAttempts = totalPekerja * 2 // Prevent infinite loop
+      console.log(`\n[${tanggal}] Assigning ${alokasi} pekerja...`)
+      console.log(`Existing workload:`, Object.keys(existingWorkload).length, 'pekerja sudah ada OT')
       
-      for (let i = 0; i < alokasi && attempts < maxAttempts; i++) {
-        attempts++
-        
-        let pekerja = selectedPekerja[(pekerjaStartIndex + i) % totalPekerja]
-        
-        // CHECK: Apakah pekerja ini sudah >= maxHoursPerDay?
-        const currentDailyWorkload = existingWorkload[pekerja.id] || 0
-        
-        if (currentDailyWorkload + durasiJam > maxHoursPerDay) {
-          // SKIP - sudah max!
-          console.log(`[${tanggal}] Skip ${pekerja.nama}: sudah ${currentDailyWorkload} jam (max ${maxHoursPerDay})`)
-          
-          // Cari pengganti: pekerja dengan workload paling sedikit yang belum max
-          const sortedByWorkload = selectedPekerja
-            .filter(p => {
-              const dailyWorkload = existingWorkload[p.id] || 0
-              const alreadyAssigned = periodPekerja.some(ap => ap.id === p.id)
-              return !alreadyAssigned && (dailyWorkload + durasiJam <= maxHoursPerDay)
-            })
-            .sort((a, b) => {
-              const aDaily = existingWorkload[a.id] || 0
-              const bDaily = existingWorkload[b.id] || 0
-              if (aDaily !== bDaily) return aDaily - bDaily
-              return jamOTTracker[a.id] - jamOTTracker[b.id]
-            })
-          
-          if (sortedByWorkload.length > 0) {
-            pekerja = sortedByWorkload[0]
-            console.log(`[${tanggal}] Ganti dengan ${pekerja.nama}: ${existingWorkload[pekerja.id] || 0} jam`)
-          } else {
-            console.warn(`[${tanggal}] TIDAK ADA pekerja yang available! (semua sudah >= ${maxHoursPerDay} jam)`)
-            // Skip slot ini
-            continue
+      // Build pool pekerja yang BISA ditambah
+      const availablePool = selectedPekerja
+        .filter(p => {
+          const currentDailyWorkload = existingWorkload[p.id] || 0
+          return (currentDailyWorkload + durasiJam) <= maxHoursPerDay
+        })
+        .sort((a, b) => {
+          // Sort by:
+          // 1. Daily workload (ascending) - yang paling sedikit hari ini
+          const aDailyWorkload = existingWorkload[a.id] || 0
+          const bDailyWorkload = existingWorkload[b.id] || 0
+          if (aDailyWorkload !== bDailyWorkload) {
+            return aDailyWorkload - bDailyWorkload
           }
-        }
-        
-        periodPekerja.push(pekerja)
-        
-        // Update existing workload map (untuk iterasi selanjutnya dalam hari yang sama)
-        if (!existingWorkload[pekerja.id]) {
-          existingWorkload[pekerja.id] = 0
-        }
-        existingWorkload[pekerja.id] += durasiJam
+          
+          // 2. Assignment count (ascending) - yang paling jarang dapat
+          if (assignedDaysCount[a.id] !== assignedDaysCount[b.id]) {
+            return assignedDaysCount[a.id] - assignedDaysCount[b.id]
+          }
+          
+          // 3. Total jam OT (ascending)
+          return jamOTTracker[a.id] - jamOTTracker[b.id]
+        })
+      
+      console.log(`Available pool: ${availablePool.length} pekerja`)
+      
+      if (availablePool.length < alokasi) {
+        console.warn(`⚠️ WARNING: Hanya ${availablePool.length} pekerja available, butuh ${alokasi}!`)
+        console.warn(`   Kemungkinan: terlalu banyak pekerja sudah >= ${maxHoursPerDay} jam hari ini`)
       }
+      
+      // Assign dari available pool
+      const periodPekerja = availablePool.slice(0, alokasi)
+      
+      if (periodPekerja.length === 0) {
+        console.error(`❌ TIDAK ADA pekerja available untuk ${tanggal}!`)
+        console.error(`   Semua pekerja sudah >= ${maxHoursPerDay} jam`)
+        // Skip hari ini
+        continue
+      }
+      
+      console.log(`✅ Assigned ${periodPekerja.length} pekerja`)
       
       // Assign
       tempSchedule[tanggal] = [...periodPekerja]
       
-      // Update JAM OT tracker
+      // Update trackers
       periodPekerja.forEach(p => {
         jamOTTracker[p.id] += durasiJam
+        assignedDaysCount[p.id] += 1
+        
+        // Update existing workload map untuk hari ini
+        if (!existingWorkload[p.id]) {
+          existingWorkload[p.id] = 0
+        }
+        existingWorkload[p.id] += durasiJam
       })
       
-      console.log(`[${tanggal}] Assigned ${periodPekerja.length} pekerja`)
+      // Update map untuk next iteration
+      existingWorkloadMap[tanggal] = existingWorkload
     }
     
     // ========================================
     // FASE 2: Auto-Balance berdasarkan JAM OT
     // ========================================
+    // Disabled untuk multi-generate scenario karena bisa conflict dengan existing assignments
+    // Auto-balance hanya efektif untuk single generate
     
     const sortedByJam = Object.entries(jamOTTracker)
       .sort(([, jamA], [, jamB]) => jamA - jamB)
     
-    const minJam = sortedByJam[0][1]
-    const maxJam = sortedByJam[sortedByJam.length - 1][1]
-    const gapJam = maxJam - minJam
-    
-    console.log(`\nJam OT range: ${minJam} - ${maxJam} jam (gap: ${gapJam} jam)`)
-    console.log(`Target per person: ${targetJamPerPerson.toFixed(1)} jam`)
-    
-    // Balance jika gap > 1 hari OT
-    if (gapJam > durasiJam) {
-      console.log('Auto-balancing...')
+    if (sortedByJam.length > 0) {
+      const minJam = sortedByJam[0][1]
+      const maxJam = sortedByJam[sortedByJam.length - 1][1]
+      const gapJam = maxJam - minJam
       
-      const underAssigned = sortedByJam
-        .filter(([, jam]) => jam < targetJamPerPerson)
-        .map(([id]) => id)
+      console.log(`\nJam OT range: ${minJam} - ${maxJam} jam (gap: ${gapJam} jam)`)
+      console.log(`Target per person: ${targetJamPerPerson.toFixed(1)} jam`)
       
-      const overAssigned = sortedByJam
-        .filter(([, jam]) => jam > targetJamPerPerson)
-        .map(([id]) => id)
+      // Only balance if gap is significant AND we're not in multi-generate scenario
+      // (Skip balance if there are existing assignments - menghindari conflict)
+      const hasExistingAssignments = Object.keys(existingWorkloadMap).length > 0
       
-      console.log(`Under-assigned: ${underAssigned.length} pekerja`)
-      console.log(`Over-assigned: ${overAssigned.length} pekerja`)
-      
-      // Replace dari hari terakhir ke awal
-      for (const underId of underAssigned) {
-        const underPekerja = selectedPekerja.find(p => p.id === underId)!
-        const needMoreJam = targetJamPerPerson - jamOTTracker[underId]
+      if (gapJam > durasiJam * 2 && !hasExistingAssignments) {
+        console.log('Auto-balancing... (single generate mode)')
         
-        if (needMoreJam <= 0) continue
+        const underAssigned = sortedByJam
+          .filter(([, jam]) => jam < targetJamPerPerson - durasiJam)
+          .map(([id]) => id)
         
-        let replacedJam = 0
+        const overAssigned = sortedByJam
+          .filter(([, jam]) => jam > targetJamPerPerson + durasiJam)
+          .map(([id]) => id)
         
-        // Loop dari belakang
-        for (let i = workDays.length - 1; i >= 0 && replacedJam < needMoreJam; i--) {
-          const tanggal = format(workDays[i], 'yyyy-MM-dd')
-          const dayAssignments = tempSchedule[tanggal]
+        console.log(`Under-assigned: ${underAssigned.length} pekerja`)
+        console.log(`Over-assigned: ${overAssigned.length} pekerja`)
+        
+        // Replace logic (simplified - untuk single generate saja)
+        let balanceCount = 0
+        for (const underId of underAssigned.slice(0, 5)) { // Limit to 5 replacements
+          const underPekerja = selectedPekerja.find(p => p.id === underId)!
           
-          if (!dayAssignments) continue
-          
-          // Get existing workload untuk tanggal ini
-          const existingWorkload = existingWorkloadMap[tanggal] || {}
-          const underPekerjaCurrentWorkload = existingWorkload[underId] || 0
-          
-          // Check: Apakah underPekerja bisa ditambah di hari ini?
-          if (underPekerjaCurrentWorkload + durasiJam > maxHoursPerDay) {
-            // Skip - sudah max untuk hari ini
-            continue
-          }
-          
-          // Cari pekerja yang over untuk di-replace
-          for (let j = 0; j < dayAssignments.length; j++) {
-            const currentPekerja = dayAssignments[j]
+          for (let i = workDays.length - 1; i >= 0 && balanceCount < 10; i--) {
+            const tanggal = format(workDays[i], 'yyyy-MM-dd')
+            const dayAssignments = tempSchedule[tanggal]
             
-            if (
-              overAssigned.includes(currentPekerja.id) &&
-              currentPekerja.id !== underId &&
-              !dayAssignments.some(p => p.id === underId) &&
-              jamOTTracker[currentPekerja.id] > targetJamPerPerson
-            ) {
-              // REPLACE!
-              dayAssignments[j] = underPekerja
-              jamOTTracker[currentPekerja.id] -= durasiJam
-              jamOTTracker[underId] += durasiJam
-              replacedJam += durasiJam
-              console.log(`[${tanggal}] Replace ${currentPekerja.nama} → ${underPekerja.nama}`)
-              break
+            if (!dayAssignments) continue
+            
+            for (let j = 0; j < dayAssignments.length; j++) {
+              const currentPekerja = dayAssignments[j]
+              
+              if (
+                overAssigned.includes(currentPekerja.id) &&
+                currentPekerja.id !== underId &&
+                !dayAssignments.some(p => p.id === underId) &&
+                jamOTTracker[currentPekerja.id] > targetJamPerPerson
+              ) {
+                dayAssignments[j] = underPekerja
+                jamOTTracker[currentPekerja.id] -= durasiJam
+                jamOTTracker[underId] += durasiJam
+                balanceCount++
+                console.log(`[${tanggal}] Balance: ${currentPekerja.nama} → ${underPekerja.nama}`)
+                break
+              }
             }
           }
         }
+        
+        console.log(`Completed ${balanceCount} balance operations`)
+      } else if (hasExistingAssignments) {
+        console.log('Skipping auto-balance (multi-generate scenario detected)')
+      } else {
+        console.log('Skipping auto-balance (gap acceptable)')
       }
     }
     
