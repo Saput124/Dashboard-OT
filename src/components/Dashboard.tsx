@@ -322,7 +322,7 @@ export default function Dashboard() {
               <Users className="w-5 h-5" />
               <div>
                 <div>Pekerja ({pekerjaList.filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId).length})</div>
-                <div className="text-[10px] font-normal text-gray-600">Rencana | Aktual</div>
+                <div className="text-[10px] font-normal text-gray-600">Jam: Rencana | Aktual</div>
               </div>
             </div>
             {dates.map((date, i) => {
@@ -372,9 +372,9 @@ export default function Dashboard() {
             const workerSchedule = scheduleData[pekerja.id]
             if (!workerSchedule) return null
             
-            // Hitung total rencana dan aktual
-            let totalRencana = 0
-            let totalAktual = 0
+            // Hitung total JAM rencana dan JAM aktual
+            let totalJamRencana = 0
+            let totalJamAktual = 0
             dates.forEach(date => {
               const tanggal = format(date, 'yyyy-MM-dd')
               const daySchedule = (workerSchedule.schedule[tanggal] || [])
@@ -382,9 +382,9 @@ export default function Dashboard() {
                   jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
                 )
               daySchedule.forEach(item => {
-                totalRencana++
+                totalJamRencana += item.durasi // Tambah JAM, bukan count
                 if (item.hasActual && item.dilaksanakan) {
-                  totalAktual++
+                  totalJamAktual += item.durasi // Tambah JAM, bukan count
                 }
               })
             })
@@ -397,10 +397,10 @@ export default function Dashboard() {
                   </div>
                   <div className="text-xs text-gray-500">{pekerja.nik}</div>
                   <div className="text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
-                    <span className="text-blue-700">{totalRencana}</span>
+                    <span className="text-blue-700">{totalJamRencana}j</span>
                     <span className="text-gray-400 mx-1">|</span>
-                    <span className={totalAktual < totalRencana ? 'text-orange-600' : 'text-emerald-600'}>
-                      {totalAktual}
+                    <span className={totalJamAktual < totalJamRencana ? 'text-orange-600' : 'text-emerald-600'}>
+                      {totalJamAktual}j
                     </span>
                   </div>
                 </div>
