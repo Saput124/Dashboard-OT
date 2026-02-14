@@ -17,7 +17,7 @@ export const INDONESIA_HOLIDAYS_2026: Holiday[] = [
   
   // Februari 2026
   { date: '2026-02-17', name: 'Tahun Baru Imlek 2577 Kongzili', isNational: true },
-  { date: '2026-02-28', name: 'Isra Mikraj Nabi Muhammad SAW', isNational: true },
+  
   
   // Maret 2026
   { date: '2026-03-14', name: 'Hari Suci Nyepi Tahun Baru Saka 1948', isNational: true },
