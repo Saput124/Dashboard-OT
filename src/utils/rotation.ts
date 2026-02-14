@@ -59,11 +59,28 @@ export const generateBalancedRotationSchedule = async (
   }
 
   // Hitung hari kerja (auto skip Minggu & tanggal merah)
+  console.log('=== INPUT DATES ===')
+  console.log('startDate:', startDate, startDate.toISOString ? startDate.toISOString() : 'not a date object')
+  console.log('endDate:', endDate, endDate.toISOString ? endDate.toISOString() : 'not a date object')
+  
   const workDays = excludeWeekends 
     ? getWorkDays(startDate, endDate)
     : getAllDays(startDate, endDate)
   
   const totalWorkDays = workDays.length
+  
+  console.log('=== WORK DAYS ===')
+  console.log('Total:', totalWorkDays)
+  console.log('First:', workDays[0] ? format(workDays[0], 'yyyy-MM-dd') : 'none')
+  console.log('Last:', workDays[totalWorkDays - 1] ? format(workDays[totalWorkDays - 1], 'yyyy-MM-dd') : 'none')
+  console.log('===================')
+  console.log('=== ROTATION DEBUG ===')
+  console.log('Start date:', startDate.toISOString())
+  console.log('End date:', endDate.toISOString())
+  console.log('Exclude weekends:', excludeWeekends)
+  console.log('Work days:', workDays.map(d => format(d, 'yyyy-MM-dd')))
+  console.log('Total work days:', totalWorkDays)
+  console.log('=====================')
   
   if (totalWorkDays === 0) {
     throw new Error('Tidak ada hari kerja dalam periode yang dipilih (semua Minggu/libur)')
