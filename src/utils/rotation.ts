@@ -61,6 +61,13 @@ const fetchExistingSchedules = async (workDays: Date[]) => {
         })
       }
     })
+    
+    // Debug: count how many existing assignments
+    let totalAssignments = 0
+    Object.values(scheduleMap).forEach(dayMap => {
+      totalAssignments += Object.keys(dayMap).length
+    })
+    console.log(`📊 Loaded ${rencanaData.length} rencana records, ${totalAssignments} total assignments`)
   }
   
   return scheduleMap
@@ -76,7 +83,14 @@ const canAssignOT = (
   existingSchedules: { [tanggal: string]: { [pekerjaId: string]: number } }
 ): boolean => {
   const currentJam = existingSchedules[tanggal]?.[pekerjaId] || 0
-  return (currentJam + durasiJam) <= MAX_JAM_OT_PER_HARI
+  const canAssign = (currentJam + durasiJam) <= MAX_JAM_OT_PER_HARI
+  
+  // Debug log
+  if (currentJam > 0) {
+    console.log(`  Check ${pekerjaId.substring(0, 8)}... on ${tanggal}: ${currentJam}j existing + ${durasiJam}j new = ${currentJam + durasiJam}j → ${canAssign ? 'OK' : 'SKIP'}`)
+  }
+  
+  return canAssign
 }
 
 /**
@@ -198,8 +212,10 @@ export const generateBalancedRotationSchedule = async (
       const currentDate = workDays[dayIndex]
       const tanggal = format(currentDate, 'yyyy-MM-dd')
       
-      // Pilih pekerja untuk hari ini dengan enforce max jam OT
+      // Pilih pekerja untuk hari ini - INTERVAL BASED dengan skip untuk max jam
       const periodPekerja: Pekerja[] = []
+      
+      // Mulai dari pekerjaStartIndex (untuk konsistensi interval/kelompok)
       let candidateIndex = pekerjaStartIndex
       let attempts = 0
       const maxAttempts = totalPekerja * 2 // Prevent infinite loop
@@ -212,7 +228,8 @@ export const generateBalancedRotationSchedule = async (
           periodPekerja.push(pekerja)
         } else {
           // Skip pekerja ini, sudah max 2 jam hari ini
-          console.log(`⏭️  Skip ${pekerja.nama} pada ${tanggal} (sudah ${existingSchedules[tanggal]?.[pekerja.id] || 0} jam)`)
+          const currentJam = existingSchedules[tanggal]?.[pekerja.id] || 0
+          console.log(`⏭️  Skip ${pekerja.nama} on ${tanggal} (${currentJam}j + ${durasiJam}j > 2j) - next candidate...`)
         }
         
         candidateIndex++
@@ -221,7 +238,7 @@ export const generateBalancedRotationSchedule = async (
       
       // Warning jika tidak cukup pekerja
       if (periodPekerja.length < alokasi) {
-        console.warn(`⚠️  Hanya ${periodPekerja.length}/${alokasi} pekerja tersedia untuk ${tanggal} (sisanya sudah max 2 jam)`)
+        console.warn(`⚠️  ${tanggal}: Hanya ${periodPekerja.length}/${alokasi} pekerja (${alokasi - periodPekerja.length} sudah max 2 jam)`)
       }
       
       // Assign
