@@ -281,25 +281,27 @@ export default function Dashboard() {
         <h3 className="font-semibold mb-3 text-blue-900">Keterangan:</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
-            <span>Sudah input & hadir</span>
+            <div className="w-5 h-5 bg-emerald-50 border-2 border-emerald-500 rounded"></div>
+            <span className="text-emerald-900 font-medium">Sudah hadir</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-orange-100 border border-orange-300 rounded"></div>
-            <span>Belum input aktual</span>
+            <div className="w-5 h-5 bg-orange-50 border-2 border-orange-400 rounded"></div>
+            <span className="text-orange-900 font-medium">Belum input</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-            <span>Tidak hadir</span>
+            <div className="w-5 h-5 bg-rose-50 border-2 border-rose-500 rounded"></div>
+            <span className="text-rose-900 font-medium">Tidak hadir</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-gray-100 border border-gray-300 rounded"></div>
-            <span>Tidak ada tugas</span>
+            <div className="w-5 h-5 bg-gray-50 border border-gray-300 rounded"></div>
+            <span className="text-gray-600">Tidak ada tugas</span>
           </div>
         </div>
-        <p className="text-xs text-blue-700 mt-3">
-          💡 Tip: Gunakan preset (7/14/30 hari) atau pilih custom date range untuk melihat periode tertentu
-        </p>
+        <div className="mt-3 pt-3 border-t border-blue-200">
+          <p className="text-xs text-blue-800">
+            <strong>💡 Fitur Baru:</strong> Jika ada 2+ overtime dalam 1 hari, otomatis digabung dalam 1 card dengan total jam
+          </p>
+        </div>
       </div>
 
       {/* Schedule Board */}
@@ -383,32 +385,83 @@ export default function Dashboard() {
                     >
                       {daySchedule.length === 0 ? (
                         <div className="h-full flex items-center justify-center">
-                          <div className="w-full h-8 bg-gray-100 rounded border border-gray-200"></div>
+                          <div className="w-full h-8 bg-gray-50 rounded"></div>
                         </div>
                       ) : (
-                        <div className="space-y-1">
-                          {daySchedule.map((item, idx) => {
-                            let bgColor = 'bg-orange-100 border-orange-300'
-                            if (item.hasActual) {
-                              bgColor = item.dilaksanakan 
-                                ? 'bg-green-100 border-green-300' 
-                                : 'bg-red-100 border-red-300'
-                            }
-                            
-                            return (
-                              <div 
-                                key={idx}
-                                className={`text-xs p-1 rounded border ${bgColor}`}
-                                title={`${item.jenis} - ${item.durasi}jam - Grup ${item.grup}`}
-                              >
-                                <div className="font-semibold truncate">{item.jenis}</div>
-                                <div className="text-[10px] flex justify-between">
-                                  <span>{item.durasi}j</span>
-                                  <span>G{item.grup}</span>
+                        // Multiple OT dalam 1 card compact
+                        <div className="space-y-0.5">
+                          {daySchedule.length === 1 ? (
+                            // Single OT - tampilkan normal
+                            (() => {
+                              const item = daySchedule[0]
+                              let bgColor = 'bg-orange-50 border-orange-400 text-orange-900'
+                              let textColor = 'text-orange-900'
+                              
+                              if (item.hasActual) {
+                                if (item.dilaksanakan) {
+                                  bgColor = 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                                  textColor = 'text-emerald-900'
+                                } else {
+                                  bgColor = 'bg-rose-50 border-rose-500 text-rose-900'
+                                  textColor = 'text-rose-900'
+                                }
+                              }
+                              
+                              return (
+                                <div 
+                                  className={`text-xs p-1.5 rounded border ${bgColor}`}
+                                  title={`${item.jenis} - ${item.durasi} jam - Grup ${item.grup}`}
+                                >
+                                  <div className={`font-bold text-[11px] truncate ${textColor}`}>
+                                    {item.jenis}
+                                  </div>
+                                  <div className={`text-[10px] flex justify-between mt-0.5 ${textColor}`}>
+                                    <span className="font-semibold">{item.durasi}j</span>
+                                    <span className="opacity-75">G{item.grup}</span>
+                                  </div>
                                 </div>
-                              </div>
-                            )
-                          })}
+                              )
+                            })()
+                          ) : (
+                            // Multiple OT - gabung dalam 1 card compact
+                            (() => {
+                              const totalJam = daySchedule.reduce((sum, item) => sum + item.durasi, 0)
+                              const hasAnyActual = daySchedule.some(item => item.hasActual)
+                              const allHadir = daySchedule.every(item => item.hasActual && item.dilaksanakan)
+                              const anyTidakHadir = daySchedule.some(item => item.hasActual && !item.dilaksanakan)
+                              
+                              let bgColor = 'bg-orange-50 border-orange-400'
+                              let textColor = 'text-orange-900'
+                              
+                              if (hasAnyActual) {
+                                if (allHadir) {
+                                  bgColor = 'bg-emerald-50 border-emerald-500'
+                                  textColor = 'text-emerald-900'
+                                } else if (anyTidakHadir) {
+                                  bgColor = 'bg-rose-50 border-rose-500'
+                                  textColor = 'text-rose-900'
+                                }
+                              }
+                              
+                              return (
+                                <div 
+                                  className={`text-xs p-1.5 rounded border ${bgColor}`}
+                                  title={daySchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
+                                >
+                                  <div className={`font-bold text-[10px] ${textColor} leading-tight`}>
+                                    {daySchedule.map((item, i) => (
+                                      <div key={i} className="truncate">
+                                        • {item.jenis} ({item.durasi}j)
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className={`text-[10px] font-semibold mt-1 pt-1 border-t ${textColor} opacity-75`}>
+                                    Total: {totalJam} jam
+                                  </div>
+                                </div>
+                              )
+                            })()
+                          )}
                         </div>
                       )}
                     </div>
