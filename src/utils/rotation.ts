@@ -212,7 +212,6 @@ export const generateBalancedRotationSchedule = async (
     // Kelompok pekerja yang SAMA bekerja bersama untuk intervalDays hari
     
     let pekerjaStartIndex = 0
-    let currentPeriodStart = format(workDays[0], 'yyyy-MM-dd')
     let daysInCurrentPeriod = 0
     
     for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
@@ -223,7 +222,6 @@ export const generateBalancedRotationSchedule = async (
       if (daysInCurrentPeriod >= intervalDays) {
         // Ganti periode
         pekerjaStartIndex += alokasi
-        currentPeriodStart = tanggal
         daysInCurrentPeriod = 0
         console.log(`🔄 Ganti periode di ${tanggal}, pekerjaStartIndex → ${pekerjaStartIndex}`)
       }
