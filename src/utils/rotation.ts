@@ -196,8 +196,6 @@ export const generateBalancedRotationSchedule = async (
         jenis_overtime_id: jenisOT.id,
         grup_rotasi: grupRotasi,
         is_minggu: isSunday,
-        is_holiday: !!holidayName,
-        holiday_name: holidayName,
         durasi_jam: jenisOT.durasi_jam,
         assigned_pekerja: assignedPekerja,
         jenis_overtime: jenisOT
