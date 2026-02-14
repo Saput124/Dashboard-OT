@@ -281,37 +281,49 @@ export default function Dashboard() {
         <h3 className="font-semibold mb-3 text-blue-900">Keterangan:</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-emerald-50 border-2 border-emerald-500 rounded"></div>
-            <span className="text-emerald-900 font-medium">Sudah hadir</span>
+            <div className="w-6 h-6 bg-teal-50 border-l-4 border-teal-500 rounded shadow-sm"></div>
+            <span className="text-teal-900 font-medium">Sudah hadir</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-orange-50 border-2 border-orange-400 rounded"></div>
-            <span className="text-orange-900 font-medium">Belum input</span>
+            <div className="w-6 h-6 bg-amber-50 border-l-4 border-amber-400 rounded shadow-sm"></div>
+            <span className="text-amber-900 font-medium">Belum input</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-rose-50 border-2 border-rose-500 rounded"></div>
-            <span className="text-rose-900 font-medium">Tidak hadir</span>
+            <div className="w-6 h-6 bg-pink-50 border-l-4 border-pink-500 rounded shadow-sm"></div>
+            <span className="text-pink-900 font-medium">Tidak hadir</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-gray-50 border border-gray-300 rounded"></div>
+            <div className="w-6 h-6 bg-gray-50 border border-gray-300 rounded"></div>
             <span className="text-gray-600">Tidak ada tugas</span>
           </div>
         </div>
-        <div className="mt-3 pt-3 border-t border-blue-200">
-          <p className="text-xs text-blue-800">
-            <strong>💡 Fitur Baru:</strong> Jika ada 2+ overtime dalam 1 hari, otomatis digabung dalam 1 card dengan total jam
-          </p>
+        <div className="mt-3 pt-3 border-t border-blue-200 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-800">
+          <div>
+            <strong>💡 Border kiri</strong> = Status warna lebih jelas
+          </div>
+          <div>
+            <strong>📊 Rencana | Aktual</strong> = Di bawah nama pekerja
+          </div>
+          <div>
+            <strong>🔒 Nama freeze</strong> = Saat scroll horizontal, nama tetap terlihat
+          </div>
+          <div>
+            <strong>📦 Multiple OT</strong> = Auto gabung dalam 1 card + total jam
+          </div>
         </div>
       </div>
 
       {/* Schedule Board */}
       <div className="card overflow-x-auto">
-        <div className="min-w-max">
+        <div className="min-w-max relative">
           {/* Header Row - Dates */}
-          <div className="flex border-b-2 border-gray-300 bg-gray-50">
-            <div className="w-48 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 flex items-center gap-2">
+          <div className="flex border-b-2 border-gray-300 bg-gray-50 sticky top-0 z-10">
+            <div className="w-52 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 flex items-center gap-2 bg-white sticky left-0 z-20">
               <Users className="w-5 h-5" />
-              Pekerja ({pekerjaList.length})
+              <div>
+                <div>Pekerja ({pekerjaList.filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId).length})</div>
+                <div className="text-[10px] font-normal text-gray-600">Rencana | Aktual</div>
+              </div>
             </div>
             {dates.map((date, i) => {
               const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
@@ -359,14 +371,38 @@ export default function Dashboard() {
             .map((pekerja) => {
             const workerSchedule = scheduleData[pekerja.id]
             if (!workerSchedule) return null
+            
+            // Hitung total rencana dan aktual
+            let totalRencana = 0
+            let totalAktual = 0
+            dates.forEach(date => {
+              const tanggal = format(date, 'yyyy-MM-dd')
+              const daySchedule = (workerSchedule.schedule[tanggal] || [])
+                .filter(item => filterJenisOTId === 'all' || 
+                  jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
+                )
+              daySchedule.forEach(item => {
+                totalRencana++
+                if (item.hasActual && item.dilaksanakan) {
+                  totalAktual++
+                }
+              })
+            })
 
             return (
               <div key={pekerja.id} className="flex border-b border-gray-200 hover:bg-gray-50">
-                <div className="w-48 flex-shrink-0 p-3 font-medium border-r-2 border-gray-300 bg-white">
-                  <div className="text-sm truncate" title={pekerja.nama}>
+                <div className="w-52 flex-shrink-0 p-2 font-medium border-r-2 border-gray-300 bg-white sticky left-0 z-10">
+                  <div className="text-sm font-semibold truncate" title={pekerja.nama}>
                     {pekerja.nama}
                   </div>
                   <div className="text-xs text-gray-500">{pekerja.nik}</div>
+                  <div className="text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
+                    <span className="text-blue-700">{totalRencana}</span>
+                    <span className="text-gray-400 mx-1">|</span>
+                    <span className={totalAktual < totalRencana ? 'text-orange-600' : 'text-emerald-600'}>
+                      {totalAktual}
+                    </span>
+                  </div>
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
@@ -394,30 +430,30 @@ export default function Dashboard() {
                             // Single OT - tampilkan normal
                             (() => {
                               const item = daySchedule[0]
-                              let bgColor = 'bg-orange-50 border-orange-400 text-orange-900'
-                              let textColor = 'text-orange-900'
+                              let bgColor = 'bg-amber-50 border-l-4 border-amber-400'
+                              let textColor = 'text-amber-900'
                               
                               if (item.hasActual) {
                                 if (item.dilaksanakan) {
-                                  bgColor = 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                                  textColor = 'text-emerald-900'
+                                  bgColor = 'bg-teal-50 border-l-4 border-teal-500'
+                                  textColor = 'text-teal-900'
                                 } else {
-                                  bgColor = 'bg-rose-50 border-rose-500 text-rose-900'
-                                  textColor = 'text-rose-900'
+                                  bgColor = 'bg-pink-50 border-l-4 border-pink-500'
+                                  textColor = 'text-pink-900'
                                 }
                               }
                               
                               return (
                                 <div 
-                                  className={`text-xs p-1.5 rounded border ${bgColor}`}
+                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
                                   title={`${item.jenis} - ${item.durasi} jam - Grup ${item.grup}`}
                                 >
                                   <div className={`font-bold text-[11px] truncate ${textColor}`}>
                                     {item.jenis}
                                   </div>
-                                  <div className={`text-[10px] flex justify-between mt-0.5 ${textColor}`}>
+                                  <div className={`text-[10px] flex justify-between mt-0.5 ${textColor} opacity-80`}>
                                     <span className="font-semibold">{item.durasi}j</span>
-                                    <span className="opacity-75">G{item.grup}</span>
+                                    <span>G{item.grup}</span>
                                   </div>
                                 </div>
                               )
@@ -430,33 +466,33 @@ export default function Dashboard() {
                               const allHadir = daySchedule.every(item => item.hasActual && item.dilaksanakan)
                               const anyTidakHadir = daySchedule.some(item => item.hasActual && !item.dilaksanakan)
                               
-                              let bgColor = 'bg-orange-50 border-orange-400'
-                              let textColor = 'text-orange-900'
+                              let bgColor = 'bg-amber-50 border-l-4 border-amber-400'
+                              let textColor = 'text-amber-900'
                               
                               if (hasAnyActual) {
                                 if (allHadir) {
-                                  bgColor = 'bg-emerald-50 border-emerald-500'
-                                  textColor = 'text-emerald-900'
+                                  bgColor = 'bg-teal-50 border-l-4 border-teal-500'
+                                  textColor = 'text-teal-900'
                                 } else if (anyTidakHadir) {
-                                  bgColor = 'bg-rose-50 border-rose-500'
-                                  textColor = 'text-rose-900'
+                                  bgColor = 'bg-pink-50 border-l-4 border-pink-500'
+                                  textColor = 'text-pink-900'
                                 }
                               }
                               
                               return (
                                 <div 
-                                  className={`text-xs p-1.5 rounded border ${bgColor}`}
+                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
                                   title={daySchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
                                 >
-                                  <div className={`font-bold text-[10px] ${textColor} leading-tight`}>
+                                  <div className={`font-bold text-[10px] ${textColor} leading-tight space-y-0.5`}>
                                     {daySchedule.map((item, i) => (
                                       <div key={i} className="truncate">
-                                        • {item.jenis} ({item.durasi}j)
+                                        • {item.jenis} {item.durasi}j
                                       </div>
                                     ))}
                                   </div>
-                                  <div className={`text-[10px] font-semibold mt-1 pt-1 border-t ${textColor} opacity-75`}>
-                                    Total: {totalJam} jam
+                                  <div className={`text-[10px] font-bold mt-1 pt-1 border-t ${textColor} border-current opacity-50`}>
+                                    Σ {totalJam}j
                                   </div>
                                 </div>
                               )
