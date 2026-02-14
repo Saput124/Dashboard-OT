@@ -98,10 +98,16 @@ export default function RotationPlan() {
     setMessage('')
     
     try {
+      // Fix timezone issue: parse date properly
+      const parseDate = (dateStr: string) => {
+        const [year, month, day] = dateStr.split('-').map(Number)
+        return new Date(year, month - 1, day, 12, 0, 0) // Noon to avoid timezone issues
+      }
+      
       const schedules = await generateRotationSchedule(
         {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           selectedPekerjaIds,
           selectedOvertimeIds,
           intervalDays,
@@ -145,18 +151,35 @@ export default function RotationPlan() {
     setMessage('')
     
     try {
+      console.log('Saving schedules:', generatedSchedule.length)
+      console.log('First schedule:', generatedSchedule[0])
+      console.log('Last schedule:', generatedSchedule[generatedSchedule.length - 1])
+      
       const result = await saveRotationSchedule(generatedSchedule)
+      
       if (result.success) {
-        setMessage('Jadwal berhasil disimpan!')
+        setMessage('✅ Jadwal berhasil disimpan!')
         setGeneratedSchedule([])
         setWorkloadPreview([])
-        fetchSavedPlans()
+        
+        // Fetch saved plans with error handling
+        setTimeout(async () => {
+          try {
+            await fetchSavedPlans()
+          } catch (err) {
+            console.error('Error fetching saved plans:', err)
+            // Don't show error to user, just log it
+          }
+        }, 500)
+        
         setActiveTab('list')
       } else {
-        setMessage('Error menyimpan jadwal')
+        setMessage('❌ Error menyimpan jadwal: ' + (result.error || 'Unknown error'))
+        console.error('Save error:', result.error)
       }
-    } catch (error) {
-      setMessage('Error: ' + error)
+    } catch (error: any) {
+      setMessage('❌ Error: ' + (error.message || error))
+      console.error('Save exception:', error)
     } finally {
       setSaving(false)
     }
