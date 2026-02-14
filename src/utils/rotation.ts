@@ -94,32 +94,33 @@ export const generateBalancedRotationSchedule = async (
     // Kelompok pekerja yang SAMA bekerja bersama untuk intervalDays hari
     
     let pekerjaStartIndex = 0
+    let currentPeriod = 0
     
-    for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex += intervalDays) {
-      // Range hari untuk periode ini
-      const periodEndIndex = Math.min(dayIndex + intervalDays, totalWorkDays)
-      const periodDays = workDays.slice(dayIndex, periodEndIndex)
+    for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
+      // Ganti periode setiap intervalDays
+      if (dayIndex > 0 && dayIndex % intervalDays === 0) {
+        currentPeriod++
+        // Move ke pekerja berikutnya
+        pekerjaStartIndex += alokasi
+      }
       
-      // Pilih pekerja untuk periode ini (FIXED group untuk semua hari dalam periode)
+      const currentDate = workDays[dayIndex]
+      const tanggal = format(currentDate, 'yyyy-MM-dd')
+      
+      // Pilih pekerja untuk hari ini (SAMA dengan hari lain dalam periode yang sama)
       const periodPekerja: Pekerja[] = []
       for (let i = 0; i < alokasi; i++) {
         const pekerja = selectedPekerja[(pekerjaStartIndex + i) % totalPekerja]
         periodPekerja.push(pekerja)
       }
       
-      // Assign pekerja yang SAMA untuk SEMUA hari dalam periode
-      for (const currentDate of periodDays) {
-        const tanggal = format(currentDate, 'yyyy-MM-dd')
-        tempSchedule[tanggal] = [...periodPekerja]
-        
-        // Update JAM OT (bukan cuma count hari!)
-        periodPekerja.forEach(p => {
-          jamOTTracker[p.id] += durasiJam
-        })
-      }
+      // Assign
+      tempSchedule[tanggal] = [...periodPekerja]
       
-      // Next periode: lanjut ke pekerja berikutnya
-      pekerjaStartIndex += alokasi
+      // Update JAM OT
+      periodPekerja.forEach(p => {
+        jamOTTracker[p.id] += durasiJam
+      })
     }
     
     // ========================================
