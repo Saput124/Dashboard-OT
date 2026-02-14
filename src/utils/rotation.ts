@@ -172,6 +172,19 @@ export const generateBalancedRotationSchedule = async (
   console.log('=== MAX JAM CHECK ===')
   console.log('Existing schedules loaded for', Object.keys(existingSchedules).length, 'days')
   console.log('Max jam per hari:', MAX_JAM_OT_PER_HARI, 'jam')
+  
+  // Count total existing assignments
+  let totalExisting = 0
+  Object.values(existingSchedules).forEach(dayMap => {
+    totalExisting += Object.keys(dayMap).length
+  })
+  console.log('Total existing assignments:', totalExisting)
+  
+  if (totalExisting === 0) {
+    console.warn('⚠️  WARNING: Tidak ada jadwal existing! Pastikan Anda sudah SAVE generate sebelumnya.')
+    console.warn('⚠️  Jika ada OT lain (misal Light Trap), SAVE dulu sebelum generate OT berikutnya!')
+  }
+  
   console.log('=====================')
   
   const schedules: any[] = []
@@ -199,18 +212,21 @@ export const generateBalancedRotationSchedule = async (
     // Kelompok pekerja yang SAMA bekerja bersama untuk intervalDays hari
     
     let pekerjaStartIndex = 0
-    let currentPeriod = 0
+    let currentPeriodStart = format(workDays[0], 'yyyy-MM-dd')
+    let daysInCurrentPeriod = 0
     
     for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
-      // Ganti periode setiap intervalDays
-      if (dayIndex > 0 && dayIndex % intervalDays === 0) {
-        currentPeriod++
-        // Move ke pekerja berikutnya
-        pekerjaStartIndex += alokasi
-      }
-      
       const currentDate = workDays[dayIndex]
       const tanggal = format(currentDate, 'yyyy-MM-dd')
+      
+      // Check apakah perlu ganti periode (setelah intervalDays hari KERJA)
+      if (daysInCurrentPeriod >= intervalDays) {
+        // Ganti periode
+        pekerjaStartIndex += alokasi
+        currentPeriodStart = tanggal
+        daysInCurrentPeriod = 0
+        console.log(`🔄 Ganti periode di ${tanggal}, pekerjaStartIndex → ${pekerjaStartIndex}`)
+      }
       
       // Pilih pekerja untuk hari ini - INTERVAL BASED dengan skip untuk max jam
       const periodPekerja: Pekerja[] = []
@@ -218,7 +234,9 @@ export const generateBalancedRotationSchedule = async (
       // Mulai dari pekerjaStartIndex (untuk konsistensi interval/kelompok)
       let candidateIndex = pekerjaStartIndex
       let attempts = 0
-      const maxAttempts = totalPekerja * 2 // Prevent infinite loop
+      const maxAttempts = totalPekerja * 3 // Prevent infinite loop
+      
+      console.log(`📅 ${tanggal} (periode ${Math.floor(dayIndex / intervalDays) + 1}, hari ${daysInCurrentPeriod + 1}/${intervalDays}): Start index ${pekerjaStartIndex}`)
       
       while (periodPekerja.length < alokasi && attempts < maxAttempts) {
         const pekerja = selectedPekerja[candidateIndex % totalPekerja]
@@ -229,7 +247,9 @@ export const generateBalancedRotationSchedule = async (
         } else {
           // Skip pekerja ini, sudah max 2 jam hari ini
           const currentJam = existingSchedules[tanggal]?.[pekerja.id] || 0
-          console.log(`⏭️  Skip ${pekerja.nama} on ${tanggal} (${currentJam}j + ${durasiJam}j > 2j) - next candidate...`)
+          if (currentJam > 0) {
+            console.log(`  ⏭️  Skip ${pekerja.nama} (${currentJam}j + ${durasiJam}j > 2j)`)
+          }
         }
         
         candidateIndex++
@@ -238,8 +258,11 @@ export const generateBalancedRotationSchedule = async (
       
       // Warning jika tidak cukup pekerja
       if (periodPekerja.length < alokasi) {
-        console.warn(`⚠️  ${tanggal}: Hanya ${periodPekerja.length}/${alokasi} pekerja (${alokasi - periodPekerja.length} sudah max 2 jam)`)
+        console.warn(`⚠️  ${tanggal}: Hanya ${periodPekerja.length}/${alokasi} pekerja tersedia`)
       }
+      
+      console.log(`  ✅ Assigned ${periodPekerja.length} pekerja:`, periodPekerja.map(p => p.nama).join(', '))
+      console.log(`  ✅ Assigned ${periodPekerja.length} pekerja:`, periodPekerja.map(p => p.nama).join(', '))
       
       // Assign
       tempSchedule[tanggal] = [...periodPekerja]
@@ -254,6 +277,9 @@ export const generateBalancedRotationSchedule = async (
         }
         existingSchedules[tanggal][p.id] += durasiJam
       })
+      
+      // Increment days in current period
+      daysInCurrentPeriod++
     }
     
     // ========================================
