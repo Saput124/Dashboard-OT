@@ -1,6 +1,6 @@
 import { format } from 'date-fns'
 import { supabase } from '../lib/supabase'
-import { getHolidayName, getWorkDays } from './holidays'
+import { getWorkDays } from './holidays'
 import type { JenisOvertime, Pekerja } from '../types'
 
 interface GenerateOptions {
@@ -188,7 +188,6 @@ export const generateBalancedRotationSchedule = async (
       const dayIndex = workDays.indexOf(currentDate)
       const grupRotasi = Math.floor(dayIndex / intervalDays) + 1
       
-      const holidayName = getHolidayName(currentDate)
       const isSunday = currentDate.getDay() === 0
       
       schedules.push({
