@@ -184,6 +184,10 @@ export const generateBalancedRotationSchedule = async (
     // Convert to Final Schedule
     // ========================================
     
+    // Debug before convert
+    console.log(`[${jenisOT.nama}] tempSchedule keys:`, Object.keys(tempSchedule))
+    console.log(`[${jenisOT.nama}] Total days in tempSchedule:`, Object.keys(tempSchedule).length)
+    
     Object.entries(tempSchedule).forEach(([tanggal, assignedPekerja]) => {
       const currentDate = workDays.find(d => format(d, 'yyyy-MM-dd') === tanggal)!
       const dayIndex = workDays.indexOf(currentDate)
@@ -201,6 +205,13 @@ export const generateBalancedRotationSchedule = async (
         jenis_overtime: jenisOT
       })
     })
+    
+    // Debug after convert
+    console.log(`[${jenisOT.nama}] Generated schedules:`, schedules.length)
+    if (schedules.length > 0) {
+      console.log(`[${jenisOT.nama}] First date:`, schedules[0].tanggal)
+      console.log(`[${jenisOT.nama}] Last date:`, schedules[schedules.length - 1].tanggal)
+    }
   }
   
   schedules.sort((a, b) => a.tanggal.localeCompare(b.tanggal))
