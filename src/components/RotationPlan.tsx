@@ -22,7 +22,11 @@ export default function RotationPlan() {
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
   const [excludeWeekends, setExcludeWeekends] = useState(true)
-  const [intervalDays, setIntervalDays] = useState(4) // Rotasi setiap berapa hari
+  const [intervalDays, setIntervalDays] = useState(4)
+  
+  // ⭐ NEW: Sunday Schedule States
+  const [generateSundaySchedule, setGenerateSundaySchedule] = useState(false)
+  const [selectedSundayOvertimeIds, setSelectedSundayOvertimeIds] = useState<string[]>([])
 
   const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
 
@@ -32,7 +36,6 @@ export default function RotationPlan() {
   }, [])
 
   useEffect(() => {
-    // Auto-select all by default
     if (pekerjaList.length > 0 && selectedPekerjaIds.length === 0) {
       setSelectedPekerjaIds(pekerjaList.map(p => p.id))
     }
@@ -94,15 +97,20 @@ export default function RotationPlan() {
       setMessage('Error: Tanggal selesai harus lebih besar dari tanggal mulai')
       return
     }
+    
+    // ⭐ NEW: Validate Sunday schedule
+    if (generateSundaySchedule && selectedSundayOvertimeIds.length === 0) {
+      setMessage('Error: Pilih minimal 1 jenis overtime untuk hari Minggu')
+      return
+    }
 
     setLoading(true)
     setMessage('')
     
     try {
-      // Fix timezone issue: parse date properly
       const parseDate = (dateStr: string) => {
         const [year, month, day] = dateStr.split('-').map(Number)
-        return new Date(year, month - 1, day, 12, 0, 0) // Noon to avoid timezone issues
+        return new Date(year, month - 1, day, 12, 0, 0)
       }
       
       const schedules = await generateRotationSchedule(
@@ -113,7 +121,10 @@ export default function RotationPlan() {
           selectedOvertimeIds,
           intervalDays,
           excludeWeekends,
-          maxHoursPerDay: 2
+          maxHoursPerDay: 2,
+          // ⭐ NEW: Sunday options
+          generateSundaySchedule,
+          sundayOvertimeIds: selectedSundayOvertimeIds
         },
         jenisOvertimeList,
         pekerjaList
@@ -153,10 +164,6 @@ export default function RotationPlan() {
     setMessage('')
     
     try {
-      console.log('Saving schedules:', generatedSchedule.length)
-      console.log('First schedule:', generatedSchedule[0])
-      console.log('Last schedule:', generatedSchedule[generatedSchedule.length - 1])
-      
       const result = await saveRotationSchedule(generatedSchedule)
       
       if (result.success) {
@@ -164,24 +171,20 @@ export default function RotationPlan() {
         setGeneratedSchedule([])
         setWorkloadPreview([])
         
-        // Fetch saved plans with error handling
         setTimeout(async () => {
           try {
             await fetchSavedPlans()
           } catch (err) {
             console.error('Error fetching saved plans:', err)
-            // Don't show error to user, just log it
           }
         }, 500)
         
         setActiveTab('list')
       } else {
         setMessage('❌ Error menyimpan jadwal: ' + (result.error || 'Unknown error'))
-        console.error('Save error:', result.error)
       }
     } catch (error: any) {
       setMessage('❌ Error: ' + (error.message || error))
-      console.error('Save exception:', error)
     } finally {
       setSaving(false)
     }
@@ -216,284 +219,424 @@ export default function RotationPlan() {
     )
   }
 
-  const toggleAllPekerja = () => {
-    if (selectedPekerjaIds.length === pekerjaList.length) {
-      setSelectedPekerjaIds([])
-    } else {
-      setSelectedPekerjaIds(pekerjaList.map(p => p.id))
+  const selectAllPekerja = () => {
+    setSelectedPekerjaIds(pekerjaList.map(p => p.id))
+  }
+
+  const deselectAllPekerja = () => {
+    setSelectedPekerjaIds([])
+  }
+
+  const selectAllOvertime = () => {
+    setSelectedOvertimeIds(jenisOvertimeList.map(ot => ot.id))
+  }
+
+  const deselectAllOvertime = () => {
+    setSelectedOvertimeIds([])
+  }
+
+  const groupedSchedules = generatedSchedule.reduce((acc: any, schedule) => {
+    if (!acc[schedule.tanggal]) {
+      acc[schedule.tanggal] = []
     }
-  }
-
-  const toggleAllOvertime = () => {
-    if (selectedOvertimeIds.length === jenisOvertimeList.length) {
-      setSelectedOvertimeIds([])
-    } else {
-      setSelectedOvertimeIds(jenisOvertimeList.map(ot => ot.id))
-    }
-  }
-
-  const groupByDate = (schedules: any[]) => {
-    const grouped: { [key: string]: any[] } = {}
-    schedules.forEach(schedule => {
-      if (!grouped[schedule.tanggal]) {
-        grouped[schedule.tanggal] = []
-      }
-      grouped[schedule.tanggal].push(schedule)
-    })
-    return grouped
-  }
-
-  const groupedSchedules = groupByDate(generatedSchedule)
+    acc[schedule.tanggal].push(schedule)
+    return acc
+  }, {})
 
   return (
     <div className="space-y-6">
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <div className="flex gap-4">
-          <button
-            onClick={() => setActiveTab('list')}
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === 'list'
-                ? 'border-blue-600 text-blue-600 font-medium'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Eye className="w-5 h-5" />
-            Daftar Rencana
-          </button>
-          <button
-            onClick={() => setActiveTab('generate')}
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === 'generate'
-                ? 'border-blue-600 text-blue-600 font-medium'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Calendar className="w-5 h-5" />
-            Generate Baru
-          </button>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+          <Calendar className="w-7 h-7" />
+          Rencana Rotasi Lembur
+        </h2>
+        <p className="text-gray-600">Buat dan kelola jadwal rotasi overtime otomatis</p>
+      </div>
+
+      <div className="flex gap-4 border-b-2 border-gray-200">
+        <button
+          onClick={() => setActiveTab('list')}
+          className={`pb-3 px-4 font-semibold transition-colors ${
+            activeTab === 'list'
+              ? 'border-b-4 border-blue-600 text-blue-600'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Eye className="w-4 h-4 inline mr-2" />
+          Daftar Rencana
+        </button>
+        <button
+          onClick={() => setActiveTab('generate')}
+          className={`pb-3 px-4 font-semibold transition-colors ${
+            activeTab === 'generate'
+              ? 'border-b-4 border-blue-600 text-blue-600'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Calendar className="w-4 h-4 inline mr-2" />
+          Generate Baru
+        </button>
       </div>
 
       {message && (
-        <div className={`p-4 rounded-lg flex items-start gap-2 ${
-          message.includes('Error') ? 'bg-red-50 text-red-800' : 'bg-green-50 text-green-800'
+        <div className={`p-4 rounded-lg ${
+          message.includes('Error') || message.includes('❌')
+            ? 'bg-red-50 border border-red-200 text-red-700'
+            : 'bg-green-50 border border-green-200 text-green-700'
         }`}>
-          <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <p>{message}</p>
+          {message}
         </div>
       )}
 
-      {/* Generate Tab */}
       {activeTab === 'generate' && (
         <div className="space-y-6">
           <div className="card">
-            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-              <Calendar className="w-6 h-6" />
-              Generate Rencana Rotasi Lembur
-            </h2>
+            <h3 className="text-xl font-bold mb-4">Pengaturan Jadwal</h3>
 
-            <div className="space-y-6">
-              {/* Date Range */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="label">Tanggal Mulai</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="label">Tanggal Selesai</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="label">Rotasi Setiap (Hari)</label>
-                  <select
-                    value={intervalDays}
-                    onChange={(e) => setIntervalDays(Number(e.target.value))}
-                    className="input-field"
-                    title="Kelompok yang sama bekerja bersama setiap X hari, lalu ganti"
-                  >
-                    <option value={1}>1 Hari</option>
-                    <option value={2}>2 Hari</option>
-                    <option value={3}>3 Hari</option>
-                    <option value={4}>4 Hari (Rekomendasi)</option>
-                    <option value={5}>5 Hari</option>
-                    <option value={6}>6 Hari</option>
-                    <option value={7}>7 Hari</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Total Hari</label>
-                  <div className="input-field bg-gray-50 flex items-center justify-center font-semibold text-blue-600">
-                    {totalDays > 0 ? `${totalDays} hari` : '-'}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="label">Tanggal Mulai</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="label">Tanggal Selesai</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="input-field"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="excludeWeekends"
+                  checked={excludeWeekends}
+                  onChange={(e) => setExcludeWeekends(e.target.checked)}
+                  className="mt-1 w-5 h-5 text-blue-600 rounded"
+                />
+                <label htmlFor="excludeWeekends" className="cursor-pointer flex-1">
+                  <div className="font-semibold text-gray-900">Skip Minggu & Tanggal Merah</div>
+                  <div className="text-sm text-gray-600 mt-1">
+                    {excludeWeekends ? (
+                      <span className="text-green-600">
+                        ✓ Hanya generate untuk hari kerja (Senin-Sabtu kecuali tanggal merah)
+                      </span>
+                    ) : (
+                      <span className="text-orange-600">
+                        ✗ Generate untuk semua hari termasuk Minggu & tanggal merah
+                      </span>
+                    )}
                   </div>
-                </div>
+                </label>
               </div>
 
-              {/* Worker Selection */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Users className="w-5 h-5" />
-                    Pilih Pekerja ({selectedPekerjaIds.length}/{pekerjaList.length})
-                  </h3>
-                  <button
-                    onClick={toggleAllPekerja}
-                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                  >
-                    {selectedPekerjaIds.length === pekerjaList.length ? (
-                      <>
-                        <Square className="w-4 h-4" />
-                        Deselect All
-                      </>
-                    ) : (
-                      <>
-                        <CheckSquare className="w-4 h-4" />
-                        Select All
-                      </>
-                    )}
-                  </button>
+              <div>
+                <label className="block font-semibold text-gray-900 mb-2">
+                  Interval Rotasi
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="7"
+                    value={intervalDays}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value)
+                      if (val >= 1 && val <= 7) {
+                        setIntervalDays(val)
+                      }
+                    }}
+                    className="input-field w-20 text-center font-bold text-lg"
+                  />
+                  <span className="text-sm text-gray-600">
+                    hari berturut-turut
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-64 overflow-y-auto">
-                  {pekerjaList.map(pekerja => (
-                    <label
-                      key={pekerja.id}
-                      className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedPekerjaIds.includes(pekerja.id)}
-                        onChange={() => togglePekerja(pekerja.id)}
-                        className="rounded text-blue-600"
-                      />
-                      <span className="text-sm truncate" title={pekerja.nama}>{pekerja.nama}</span>
-                    </label>
-                  ))}
+                <div className="text-xs text-gray-500 mt-2">
+                  Kelompok pekerja yang sama akan bertugas selama {intervalDays} hari berturut-turut sebelum rotasi
                 </div>
               </div>
+            </div>
 
-              {/* Overtime Type Selection */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Clock className="w-5 h-5" />
-                    Pilih Jenis Overtime ({selectedOvertimeIds.length}/{jenisOvertimeList.length})
-                  </h3>
-                  <button
-                    onClick={toggleAllOvertime}
-                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                  >
-                    {selectedOvertimeIds.length === jenisOvertimeList.length ? (
-                      <>
-                        <Square className="w-4 h-4" />
-                        Deselect All
-                      </>
+            {/* ⭐ NEW: Sunday Schedule Section */}
+            <div className="border-2 border-purple-200 rounded-lg p-5 bg-gradient-to-br from-purple-50 to-indigo-50 mt-4 shadow-sm">
+              <div className="flex items-start gap-4 mb-4">
+                <input
+                  type="checkbox"
+                  id="generateSundaySchedule"
+                  checked={generateSundaySchedule}
+                  onChange={(e) => {
+                    setGenerateSundaySchedule(e.target.checked)
+                    if (!e.target.checked) {
+                      setSelectedSundayOvertimeIds([])
+                    }
+                  }}
+                  className="mt-1 w-6 h-6 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                />
+                <label htmlFor="generateSundaySchedule" className="cursor-pointer flex-1">
+                  <div className="flex items-center gap-2 font-bold text-lg text-purple-900">
+                    <span>🗓️</span>
+                    <span>Generate Jadwal Khusus Hari Minggu</span>
+                  </div>
+                  <div className="text-sm mt-2">
+                    {generateSundaySchedule ? (
+                      <div className="flex items-center gap-2 text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                        <span className="font-bold text-lg">✓</span>
+                        <span className="font-medium">
+                          Aktif - Akan generate jadwal khusus untuk hari Minggu (durasi berbeda dari hari kerja)
+                        </span>
+                      </div>
                     ) : (
-                      <>
-                        <CheckSquare className="w-4 h-4" />
-                        Select All
-                      </>
+                      <div className="flex items-center gap-2 text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                        <span className="font-bold text-lg">✗</span>
+                        <span>
+                          Nonaktif - Hari Minggu akan kosong
+                        </span>
+                      </div>
                     )}
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {jenisOvertimeList.map(overtime => (
-                    <label
-                      key={overtime.id}
-                      className="flex items-start gap-3 p-3 hover:bg-white rounded cursor-pointer border border-transparent hover:border-blue-200"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedOvertimeIds.includes(overtime.id)}
-                        onChange={() => toggleOvertime(overtime.id)}
-                        className="mt-1 rounded text-blue-600"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">{overtime.nama}</div>
-                        <div className="text-sm text-gray-600">
-                          {overtime.alokasi_pekerja} pekerja • {overtime.durasi_jam} jam • {overtime.keterangan}
+                  </div>
+                </label>
+              </div>
+
+              {generateSundaySchedule && (
+                <div className="mt-5 pt-5 border-t-2 border-purple-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                        <span>📋</span>
+                        <span>Pilih Jenis Overtime untuk Hari Minggu</span>
+                      </h4>
+                      <p className="text-sm text-purple-700 mt-1">
+                        Pilih jenis OT yang akan digunakan khusus untuk hari Minggu (biasanya durasi lebih lama, mis: 7 jam)
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-purple-600">
+                        {selectedSundayOvertimeIds.length}
+                      </div>
+                      <div className="text-xs text-purple-700">dipilih</div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 max-h-64 overflow-y-auto bg-white rounded-xl p-4 border-2 border-purple-200 shadow-inner">
+                    {jenisOvertimeList.length === 0 ? (
+                      <div className="text-center py-8">
+                        <div className="text-4xl mb-2">📝</div>
+                        <div className="text-gray-600 font-medium">Tidak ada jenis overtime</div>
+                        <div className="text-sm text-gray-500 mt-1">
+                          Buat jenis overtime baru di menu <strong>Management</strong>
                         </div>
                       </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
+                    ) : (
+                      jenisOvertimeList.map(overtime => {
+                        const isSelected = selectedSundayOvertimeIds.includes(overtime.id)
+                        
+                        return (
+                          <label
+                            key={overtime.id}
+                            className={`
+                              flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200
+                              ${isSelected 
+                                ? 'bg-gradient-to-r from-purple-100 to-indigo-100 border-2 border-purple-500 shadow-md transform scale-[1.02]' 
+                                : 'bg-gray-50 border-2 border-gray-200 hover:border-purple-300 hover:bg-purple-50 hover:shadow-sm'
+                              }
+                            `}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedSundayOvertimeIds([...selectedSundayOvertimeIds, overtime.id])
+                                } else {
+                                  setSelectedSundayOvertimeIds(selectedSundayOvertimeIds.filter(id => id !== overtime.id))
+                                }
+                              }}
+                              className="mt-1 w-5 h-5 rounded text-purple-600 focus:ring-2 focus:ring-purple-500"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between">
+                                <div className="font-bold text-lg text-gray-900">{overtime.nama}</div>
+                                {isSelected && (
+                                  <div className="bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                    DIPILIH
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 mt-2 text-sm">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-gray-600">⏱️</span>
+                                  <span className="font-bold text-purple-700">{overtime.durasi_jam} jam</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-gray-600">👥</span>
+                                  <span className="font-semibold text-gray-700">{overtime.alokasi_pekerja} pekerja</span>
+                                </div>
+                              </div>
+                              {overtime.keterangan && (
+                                <div className="mt-2 text-sm text-gray-600 italic">
+                                  {overtime.keterangan}
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        )
+                      })
+                    )}
+                  </div>
 
-              {/* Weekend & Interval Options */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
-                {/* Skip Weekends Checkbox */}
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id="excludeWeekends"
-                    checked={excludeWeekends}
-                    onChange={(e) => setExcludeWeekends(e.target.checked)}
-                    className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                  />
-                  <label htmlFor="excludeWeekends" className="cursor-pointer flex-1">
-                    <div className="font-semibold text-gray-900 mb-1">🗓️ Skip Minggu & Tanggal Merah</div>
-                    <div className="text-sm text-gray-700 leading-relaxed">
-                      {excludeWeekends ? (
-                        <span className="text-green-700 font-medium">
-                          ✓ Hanya generate untuk hari kerja (Senin-Sabtu kecuali tanggal merah)
-                        </span>
-                      ) : (
-                        <span className="text-orange-700 font-medium">
-                          ✗ Generate untuk semua hari termasuk Minggu & tanggal merah
-                        </span>
-                      )}
+                  {jenisOvertimeList.length > 0 && selectedSundayOvertimeIds.length === 0 && (
+                    <div className="mt-3 flex items-start gap-3 text-sm text-orange-700 bg-orange-50 p-4 rounded-lg border-2 border-orange-200">
+                      <span className="text-xl">⚠️</span>
+                      <div>
+                        <div className="font-bold">Belum ada jenis overtime yang dipilih</div>
+                        <div className="mt-1">Pilih minimal 1 jenis overtime untuk hari Minggu sebelum generate</div>
+                      </div>
                     </div>
-                  </label>
-                </div>
+                  )}
 
-                {/* Interval Days Display */}
-                <div className="bg-white bg-opacity-60 rounded-lg p-3 border border-blue-200">
-                  <div className="font-semibold text-gray-900 mb-1">🔄 Interval Rotasi</div>
-                  <div className="text-sm text-gray-700">
-                    Kelompok yang sama bertugas selama <span className="font-bold text-blue-600">{intervalDays} hari</span> berturut-turut sebelum rotasi
+                  {selectedSundayOvertimeIds.length > 0 && (
+                    <div className="mt-3 flex items-start gap-3 text-sm text-green-700 bg-green-50 p-4 rounded-lg border-2 border-green-200">
+                      <span className="text-xl">✅</span>
+                      <div>
+                        <div className="font-bold">
+                          {selectedSundayOvertimeIds.length} jenis overtime dipilih untuk hari Minggu
+                        </div>
+                        <div className="mt-1">
+                          Jadwal akan di-generate untuk semua hari Minggu dalam periode yang dipilih
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 rounded-lg border-2 border-blue-200">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">💡</span>
+                      <div className="flex-1">
+                        <div className="font-bold text-blue-900 mb-2">Tips Penggunaan:</div>
+                        <ul className="text-sm text-blue-800 space-y-1">
+                          <li>• Buat jenis OT khusus dengan durasi lebih panjang (mis: 7 jam) di menu <strong>Management</strong></li>
+                          <li>• Anda bisa memilih multiple jenis OT untuk Minggu (misal: Lightrap + Maintenance)</li>
+                          <li>• Pekerja yang dapat jadwal Minggu akan di-rotasi secara fair berdasarkan beban kerja</li>
+                          <li>• Jadwal Minggu TIDAK terkena batasan "Max 2 jam per hari" (bisa 7 jam sekaligus)</li>
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+            </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={handleGenerate}
-                  disabled={loading || selectedPekerjaIds.length === 0 || selectedOvertimeIds.length === 0}
-                  className="btn-primary disabled:opacity-50"
-                >
-                  {loading ? 'Generating...' : `Generate Jadwal (${totalDays} hari)`}
-                </button>
-
-                {generatedSchedule.length > 0 && (
-                  <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="btn-success disabled:opacity-50"
-                  >
-                    {saving ? 'Menyimpan...' : 'Simpan Jadwal'}
+            <div className="mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <label className="label">Pilih Pekerja ({selectedPekerjaIds.length} dipilih)</label>
+                <div className="flex gap-2">
+                  <button onClick={selectAllPekerja} className="text-sm text-blue-600 hover:text-blue-800">
+                    Pilih Semua
                   </button>
-                )}
+                  <button onClick={deselectAllPekerja} className="text-sm text-red-600 hover:text-red-800">
+                    Hapus Semua
+                  </button>
+                </div>
               </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200">
+                {pekerjaList.map(pekerja => (
+                  <label
+                    key={pekerja.id}
+                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-100 p-2 rounded"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPekerjaIds.includes(pekerja.id)}
+                      onChange={() => togglePekerja(pekerja.id)}
+                      className="rounded text-blue-600"
+                    />
+                    <span>{pekerja.nama}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <label className="label">Pilih Jenis Overtime Hari Kerja ({selectedOvertimeIds.length} dipilih)</label>
+                <div className="flex gap-2">
+                  <button onClick={selectAllOvertime} className="text-sm text-blue-600 hover:text-blue-800">
+                    Pilih Semua
+                  </button>
+                  <button onClick={deselectAllOvertime} className="text-sm text-red-600 hover:text-red-800">
+                    Hapus Semua
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200">
+                {jenisOvertimeList.map(overtime => (
+                  <label
+                    key={overtime.id}
+                    className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                      selectedOvertimeIds.includes(overtime.id)
+                        ? 'bg-blue-100 border-2 border-blue-400'
+                        : 'bg-white border-2 border-transparent hover:border-blue-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedOvertimeIds.includes(overtime.id)}
+                      onChange={() => toggleOvertime(overtime.id)}
+                      className="mt-1 rounded text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-900">{overtime.nama}</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        <span className="font-medium">{overtime.durasi_jam} jam</span>
+                        {' • '}
+                        {overtime.alokasi_pekerja} pekerja per hari
+                        {overtime.keterangan && ` • ${overtime.keterangan}`}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleGenerate}
+                disabled={loading || selectedPekerjaIds.length === 0 || selectedOvertimeIds.length === 0}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Generating...' : `Generate Jadwal (${totalDays} hari)`}
+              </button>
+
+              {generatedSchedule.length > 0 && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="btn-success disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Menyimpan...' : 'Simpan Jadwal'}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Workload Preview */}
           {workloadPreview.length > 0 && (
-            <div className="card bg-blue-50 border border-blue-200">
-              <h3 className="font-semibold mb-4 text-blue-900">Preview Distribusi Beban Kerja</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
-                {workloadPreview.map((item) => {
-                  const avgJam = (item.totalJam / totalDays).toFixed(1)
-                  const isBalanced = item.totalJam >= workloadPreview[workloadPreview.length - 1].totalJam * 0.8
+            <div className="card">
+              <h3 className="text-xl font-bold mb-4">Distribusi Beban Kerja</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {workloadPreview.map(item => {
+                  const avgJam = (item.totalJam / item.jumlahTugas).toFixed(1)
+                  const targetJam = (generatedSchedule.reduce((sum, s) => sum + (s.durasi_jam * s.assigned_pekerja.length), 0) / selectedPekerjaIds.length)
+                  const isBalanced = item.totalJam >= targetJam * 0.8
                   
                   return (
                     <div
@@ -513,13 +656,9 @@ export default function RotationPlan() {
                   )
                 })}
               </div>
-              <p className="text-sm text-blue-700 mt-3">
-                ℹ️ <strong>Hijau</strong> = Distribusi seimbang, <strong>Kuning</strong> = Beban lebih ringan dari yang lain
-              </p>
             </div>
           )}
 
-          {/* Generated Schedule Preview */}
           {generatedSchedule.length > 0 && (
             <div className="card">
               <h3 className="text-xl font-bold mb-4">Preview Jadwal</h3>
@@ -591,13 +730,12 @@ export default function RotationPlan() {
               <li>• <strong>Skip otomatis</strong>: Hari Minggu & tanggal merah (Imlek, Lebaran, dll)</li>
               <li>• <strong>Distribusi berdasarkan JAM OT</strong>: Bukan cuma jumlah hari, tapi total jam lembur</li>
               <li>• <strong>Auto-Balance</strong>: Pekerja yang kurang jam OT akan di-replace ke periode terakhir</li>
-              <li>• <strong>Contoh</strong>: 16-28 Feb → Skip 17 Feb (Imlek), 22 Feb (Minggu) → Sisa 11 hari kerja</li>
+              <li>• <strong>Jadwal Minggu Khusus</strong>: Bisa set OT durasi berbeda untuk hari Minggu (mis: 7 jam)</li>
             </ul>
           </div>
         </div>
       )}
 
-      {/* List Tab */}
       {activeTab === 'list' && (
         <div className="space-y-4">
           <div className="card">
