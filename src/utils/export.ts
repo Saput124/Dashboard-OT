@@ -46,31 +46,36 @@ export function exportToPDF(
   // Prepare table data
   const headers = ['Pekerja', ...dates.map(d => `${getDayName(format(d, 'yyyy-MM-dd')).substring(0, 3)}\n${format(d, 'dd/MM')}`)]
   
-  const rows = filteredPekerja.map(pekerja => {
-    const workerSchedule = scheduleData[pekerja.id]
-    if (!workerSchedule) return [pekerja.nama, ...dates.map(() => '-')]
-    
-    const row = [pekerja.nama]
-    
-    dates.forEach(date => {
-      const tanggal = format(date, 'yyyy-MM-dd')
-      const daySchedule = workerSchedule.schedule[tanggal] || []
+  const rows = filteredPekerja
+    .map(pekerja => {
+      const workerSchedule = scheduleData[pekerja.id]
+      if (!workerSchedule) return null
       
-      // Apply overtime filter
-      const filteredSchedule = selectedOvertimeFilter.length > 0
-        ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
-        : daySchedule
+      const row = [pekerja.nama]
+      let hasAnySchedule = false
       
-      if (filteredSchedule.length === 0) {
-        row.push('-')
-      } else {
-        const text = filteredSchedule.map(s => `${s.jenis} (${s.durasi}j)`).join('\n')
-        row.push(text)
-      }
+      dates.forEach(date => {
+        const tanggal = format(date, 'yyyy-MM-dd')
+        const daySchedule = workerSchedule.schedule[tanggal] || []
+        
+        // Apply overtime filter
+        const filteredSchedule = selectedOvertimeFilter.length > 0
+          ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
+          : daySchedule
+        
+        if (filteredSchedule.length === 0) {
+          row.push('-')
+        } else {
+          hasAnySchedule = true
+          const text = filteredSchedule.map(s => `${s.jenis} (${s.durasi}j)`).join('\n')
+          row.push(text)
+        }
+      })
+      
+      // Hanya return row jika pekerja punya minimal 1 jadwal
+      return hasAnySchedule ? row : null
     })
-    
-    return row
-  })
+    .filter(row => row !== null) // Filter out null rows
 
   // Generate table
   autoTable(doc, {
@@ -119,33 +124,36 @@ export function exportToExcel(
   const header = ['Pekerja', 'NIK', ...dates.map(d => `${getDayName(format(d, 'yyyy-MM-dd'))} ${format(d, 'dd/MM')}`)]
   data.push(header)
   
-  // Data rows
+  // Data rows - hanya pekerja yang punya jadwal
   filteredPekerja.forEach(pekerja => {
     const workerSchedule = scheduleData[pekerja.id]
+    if (!workerSchedule) return
+    
     const row = [pekerja.nama, pekerja.nik || '']
+    let hasAnySchedule = false
     
-    if (!workerSchedule) {
-      dates.forEach(() => row.push('-'))
-    } else {
-      dates.forEach(date => {
-        const tanggal = format(date, 'yyyy-MM-dd')
-        const daySchedule = workerSchedule.schedule[tanggal] || []
-        
-        // Apply overtime filter
-        const filteredSchedule = selectedOvertimeFilter.length > 0
-          ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
-          : daySchedule
-        
-        if (filteredSchedule.length === 0) {
-          row.push('-')
-        } else {
-          const text = filteredSchedule.map(s => `${s.jenis} (${s.durasi}j, G${s.grup})`).join('; ')
-          row.push(text)
-        }
-      })
+    dates.forEach(date => {
+      const tanggal = format(date, 'yyyy-MM-dd')
+      const daySchedule = workerSchedule.schedule[tanggal] || []
+      
+      // Apply overtime filter
+      const filteredSchedule = selectedOvertimeFilter.length > 0
+        ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
+        : daySchedule
+      
+      if (filteredSchedule.length === 0) {
+        row.push('-')
+      } else {
+        hasAnySchedule = true
+        const text = filteredSchedule.map(s => `${s.jenis} (${s.durasi}j, G${s.grup})`).join('; ')
+        row.push(text)
+      }
+    })
+    
+    // Hanya push row jika pekerja punya minimal 1 jadwal
+    if (hasAnySchedule) {
+      data.push(row)
     }
-    
-    data.push(row)
   })
 
   // Create workbook
