@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Calendar, ChevronLeft, ChevronRight, Users } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Users, Download, FileSpreadsheet, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { addDays, format, startOfDay, differenceInDays } from 'date-fns'
+import { exportToPDF, exportToExcel } from '../utils/export'
 
 interface ScheduleData {
   [pekerjaId: string]: {
@@ -25,8 +26,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [pekerjaList, setPekerjaList] = useState<any[]>([])
   const [jenisOvertimeList, setJenisOvertimeList] = useState<any[]>([])
-  const [filterPekerjaId, setFilterPekerjaId] = useState<string>('all')
-  const [filterJenisOTId, setFilterJenisOTId] = useState<string>('all')
+  const [filterPekerjaIds, setFilterPekerjaIds] = useState<string[]>([]) // Multi-select
+  const [filterJenisOTIds, setFilterJenisOTIds] = useState<string[]>([]) // Multi-select
 
   const totalDays = differenceInDays(endDate, startDate) + 1
   const dates = Array.from({ length: totalDays }, (_, i) => addDays(startOfDay(startDate), i))
@@ -154,12 +155,32 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-          <Calendar className="w-7 h-7" />
-          Papan Jadwal Overtime
-        </h2>
-        <p className="text-gray-600">Jadwal rotasi lembur (pilih periode sesuai kebutuhan)</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+            <Calendar className="w-7 h-7" />
+            Papan Jadwal Overtime
+          </h2>
+          <p className="text-gray-600">Jadwal rotasi lembur (pilih periode sesuai kebutuhan)</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportToPDF(scheduleData, dates, pekerjaList, filterPekerjaIds, filterJenisOTIds, jenisOvertimeList)}
+            className="btn-secondary flex items-center gap-2"
+            title="Download PDF"
+          >
+            <FileText className="w-4 h-4" />
+            PDF
+          </button>
+          <button
+            onClick={() => exportToExcel(scheduleData, dates, pekerjaList, filterPekerjaIds, filterJenisOTIds, jenisOvertimeList)}
+            className="btn-secondary flex items-center gap-2"
+            title="Download Excel"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Excel
+          </button>
+        </div>
       </div>
 
       {/* Date Navigation & Range Selector */}
@@ -168,30 +189,82 @@ export default function Dashboard() {
           {/* Filter Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b">
             <div>
-              <label className="label text-xs">Filter Pekerja</label>
-              <select
-                value={filterPekerjaId}
-                onChange={(e) => setFilterPekerjaId(e.target.value)}
-                className="input-field text-sm"
-              >
-                <option value="all">Semua Pekerja</option>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label text-xs">Filter Pekerja</label>
+                <button
+                  onClick={() => {
+                    if (filterPekerjaIds.length === pekerjaList.length) {
+                      setFilterPekerjaIds([])
+                    } else {
+                      setFilterPekerjaIds(pekerjaList.map(p => p.id))
+                    }
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  {filterPekerjaIds.length === pekerjaList.length ? 'Clear All' : 'Select All'}
+                </button>
+              </div>
+              <div className="border border-gray-300 rounded max-h-40 overflow-y-auto p-2 bg-white">
                 {pekerjaList.map(p => (
-                  <option key={p.id} value={p.id}>{p.nama}</option>
+                  <label key={p.id} className="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filterPekerjaIds.includes(p.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFilterPekerjaIds([...filterPekerjaIds, p.id])
+                        } else {
+                          setFilterPekerjaIds(filterPekerjaIds.filter(id => id !== p.id))
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{p.nama}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
+              <div className="text-xs text-gray-600 mt-1">
+                {filterPekerjaIds.length === 0 ? 'Semua pekerja' : `${filterPekerjaIds.length} dipilih`}
+              </div>
             </div>
             <div>
-              <label className="label text-xs">Filter Jenis Overtime</label>
-              <select
-                value={filterJenisOTId}
-                onChange={(e) => setFilterJenisOTId(e.target.value)}
-                className="input-field text-sm"
-              >
-                <option value="all">Semua Jenis OT</option>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label text-xs">Filter Jenis Overtime</label>
+                <button
+                  onClick={() => {
+                    if (filterJenisOTIds.length === jenisOvertimeList.length) {
+                      setFilterJenisOTIds([])
+                    } else {
+                      setFilterJenisOTIds(jenisOvertimeList.map(ot => ot.id))
+                    }
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  {filterJenisOTIds.length === jenisOvertimeList.length ? 'Clear All' : 'Select All'}
+                </button>
+              </div>
+              <div className="border border-gray-300 rounded max-h-40 overflow-y-auto p-2 bg-white">
                 {jenisOvertimeList.map(ot => (
-                  <option key={ot.id} value={ot.id}>{ot.nama}</option>
+                  <label key={ot.id} className="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filterJenisOTIds.includes(ot.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFilterJenisOTIds([...filterJenisOTIds, ot.id])
+                        } else {
+                          setFilterJenisOTIds(filterJenisOTIds.filter(id => id !== ot.id))
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{ot.nama}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
+              <div className="text-xs text-gray-600 mt-1">
+                {filterJenisOTIds.length === 0 ? 'Semua jenis OT' : `${filterJenisOTIds.length} dipilih`}
+              </div>
             </div>
           </div>
 
@@ -321,13 +394,16 @@ export default function Dashboard() {
             <div className="w-52 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 flex items-center gap-2 bg-white sticky left-0 z-20">
               <Users className="w-5 h-5" />
               <div>
-                <div>Pekerja ({pekerjaList.filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId).length})</div>
+                <div>Pekerja ({filterPekerjaIds.length > 0 ? filterPekerjaIds.length : pekerjaList.length})</div>
                 <div className="text-[10px] font-normal text-gray-600">Jam: Rencana | Aktual</div>
               </div>
             </div>
             {dates.map((date, i) => {
               const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
               const isWeekend = date.getDay() === 0 || date.getDay() === 6
+              const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+              const dayName = dayNames[date.getDay()]
+              
               return (
                 <div 
                   key={i} 
@@ -335,7 +411,7 @@ export default function Dashboard() {
                     isToday ? 'bg-blue-100 font-bold' : ''
                   } ${isWeekend ? 'bg-yellow-50' : ''}`}
                 >
-                  <div className="text-xs font-semibold">{format(date, 'EEE')}</div>
+                  <div className="text-xs font-semibold">{dayName}</div>
                   <div className={`text-sm ${isToday ? 'text-blue-700' : ''}`}>
                     {format(date, 'dd/MM')}
                   </div>
@@ -347,23 +423,24 @@ export default function Dashboard() {
           {/* Data Rows - Workers */}
           {pekerjaList
             .filter(p => {
-              // Filter berdasarkan pekerja
-              if (filterPekerjaId !== 'all' && p.id !== filterPekerjaId) {
+              // Filter berdasarkan pekerja (multi-select)
+              if (filterPekerjaIds.length > 0 && !filterPekerjaIds.includes(p.id)) {
                 return false
               }
               
-              // Filter berdasarkan jenis OT: hanya tampilkan pekerja yang punya jadwal OT tersebut
-              if (filterJenisOTId !== 'all') {
+              // Filter berdasarkan jenis OT (multi-select)
+              if (filterJenisOTIds.length > 0) {
                 const workerSchedule = scheduleData[p.id]
                 if (!workerSchedule) return false
                 
-                // Cek apakah pekerja ini punya jadwal untuk jenis OT yang dipilih
-                const hasThisOT = Object.values(workerSchedule.schedule).some(daySchedule => 
-                  daySchedule.some(item => 
-                    jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                  )
+                // Cek apakah pekerja ini punya jadwal untuk salah satu jenis OT yang dipilih
+                const hasSelectedOT = Object.values(workerSchedule.schedule).some(daySchedule => 
+                  daySchedule.some(item => {
+                    const jenisOTId = jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id
+                    return jenisOTId && filterJenisOTIds.includes(jenisOTId)
+                  })
                 )
-                return hasThisOT
+                return hasSelectedOT
               }
               
               return true
@@ -378,9 +455,11 @@ export default function Dashboard() {
             dates.forEach(date => {
               const tanggal = format(date, 'yyyy-MM-dd')
               const daySchedule = (workerSchedule.schedule[tanggal] || [])
-                .filter(item => filterJenisOTId === 'all' || 
-                  jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                )
+                .filter(item => {
+                  if (filterJenisOTIds.length === 0) return true
+                  const jenisOTId = jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id
+                  return jenisOTId && filterJenisOTIds.includes(jenisOTId)
+                })
               daySchedule.forEach(item => {
                 totalJamRencana += item.durasi // Tambah JAM, bukan count
                 if (item.hasActual && item.dilaksanakan) {
@@ -407,9 +486,11 @@ export default function Dashboard() {
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
                   const daySchedule = (workerSchedule.schedule[tanggal] || [])
-                    .filter(item => filterJenisOTId === 'all' || 
-                      jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                    )
+                    .filter(item => {
+                      if (filterJenisOTIds.length === 0) return true
+                      const jenisOTId = jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id
+                      return jenisOTId && filterJenisOTIds.includes(jenisOTId)
+                    })
                   const isWeekend = date.getDay() === 0 || date.getDay() === 6
 
                   return (
@@ -445,13 +526,13 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  className={`px-2 py-2 rounded ${bgColor} shadow-sm`}
                                   title={`${item.jenis} - ${item.durasi} jam - Grup ${item.grup}`}
                                 >
-                                  <div className={`font-bold text-[11px] truncate ${textColor}`}>
+                                  <div className={`font-bold text-sm truncate ${textColor}`}>
                                     {item.jenis}
                                   </div>
-                                  <div className={`text-[10px] flex justify-between mt-0.5 ${textColor} opacity-80`}>
+                                  <div className={`text-xs flex justify-between mt-1 ${textColor} opacity-80`}>
                                     <span className="font-semibold">{item.durasi}j</span>
                                     <span>G{item.grup}</span>
                                   </div>
@@ -481,17 +562,17 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  className={`px-2 py-2 rounded ${bgColor} shadow-sm`}
                                   title={daySchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
                                 >
-                                  <div className={`font-bold text-[10px] ${textColor} leading-tight space-y-0.5`}>
+                                  <div className={`font-bold text-xs ${textColor} leading-tight space-y-0.5`}>
                                     {daySchedule.map((item, i) => (
                                       <div key={i} className="truncate">
                                         • {item.jenis} {item.durasi}j
                                       </div>
                                     ))}
                                   </div>
-                                  <div className={`text-[10px] font-bold mt-1 pt-1 border-t ${textColor} border-current opacity-50`}>
+                                  <div className={`text-xs font-bold mt-1 pt-1 border-t ${textColor} border-current opacity-50`}>
                                     Σ {totalJam}j
                                   </div>
                                 </div>
