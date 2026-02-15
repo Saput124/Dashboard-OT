@@ -168,7 +168,7 @@ export default function RankingPerforma() {
             <TrendingDown className="w-10 h-10 text-red-600" />
             <div>
               <div className="text-3xl font-bold text-red-700">{kurang.length}</div>
-              <div className="text-sm text-red-600">Kurang (<70%)</div>
+              <div className="text-sm text-red-600">Kurang {'(<70%)'}</div>
             </div>
           </div>
         </div>
@@ -254,7 +254,7 @@ export default function RankingPerforma() {
           </div>
           <div className="flex items-center gap-2">
             <TrendingDown className="w-5 h-5 text-red-600" />
-            <span><strong>Kurang:</strong> <70% kehadiran (perlu ditingkatkan)</span>
+            <span><strong>Kurang:</strong> {'<70%'} kehadiran (perlu ditingkatkan)</span>
           </div>
         </div>
       </div>
