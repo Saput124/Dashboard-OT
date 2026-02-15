@@ -1,6 +1,9 @@
 import { format } from 'date-fns'
+// @ts-ignore - Install with: npm install jspdf jspdf-autotable xlsx
 import jsPDF from 'jspdf'
+// @ts-ignore
 import autoTable from 'jspdf-autotable'
+// @ts-ignore
 import * as XLSX from 'xlsx'
 
 interface ScheduleData {
