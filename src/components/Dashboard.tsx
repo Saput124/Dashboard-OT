@@ -665,7 +665,7 @@ export default function Dashboard() {
             )
           })
           .filter(Boolean) // Remove null entries
-          }}
+          }
         </div>
       </div>
 
