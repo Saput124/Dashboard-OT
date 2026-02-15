@@ -38,7 +38,7 @@ export function exportToPDF(
   doc.setFont('helvetica', 'bold')
   doc.text('Jadwal Overtime', 14, 15)
   
-  doc.setFontSize(10)
+  doc.setFontSize(12)
   doc.setFont('helvetica', 'normal')
   doc.text(`Periode: ${format(dates[0], 'dd/MM/yyyy')} - ${format(dates[dates.length - 1], 'dd/MM/yyyy')}`, 14, 22)
   doc.text(`Dicetak: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 27)
@@ -84,7 +84,7 @@ export function exportToPDF(
     startY: 32,
     theme: 'grid',
     styles: {
-      fontSize: 7,
+      fontSize: 10,
       cellPadding: 2,
       valign: 'middle',
       halign: 'center'
@@ -96,7 +96,7 @@ export function exportToPDF(
       halign: 'center'
     },
     columnStyles: {
-      0: { halign: 'left', cellWidth: 35 }
+      0: { halign: 'left', cellWidth: 30, fontSize:9 , fontStyle:'bold'}
     },
     alternateRowStyles: {
       fillColor: [245, 245, 245]
