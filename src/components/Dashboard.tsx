@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, Users, Download, FileDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { addDays, format, startOfDay, differenceInDays } from 'date-fns'
-import { getDayName, getShortDayName } from '../utils/rotation'
+import { getShortDayName } from '../utils/rotation'
 import { exportToPDF, exportToExcel } from '../utils/export'
 
 interface ScheduleData {
@@ -26,7 +26,6 @@ export default function Dashboard() {
   const [endDate, setEndDate] = useState(addDays(new Date(), 14))
   const [loading, setLoading] = useState(true)
   const [pekerjaList, setPekerjaList] = useState<any[]>([])
-  const [jenisOvertimeList, setJenisOvertimeList] = useState<any[]>([])
   const [selectedPekerjaFilter, setSelectedPekerjaFilter] = useState<string[]>([])
   const [selectedOvertimeFilter, setSelectedOvertimeFilter] = useState<string[]>([])
 
@@ -54,19 +53,12 @@ export default function Dashboard() {
       .eq('aktif', true)
       .order('nama', { ascending: true })
 
-    // Fetch jenis overtime untuk filter
-    const { data: jenisOT } = await supabase
-      .from('jenis_overtime')
-      .select('*')
-      .order('nama', { ascending: true })
-
     if (!pekerja) {
       setLoading(false)
       return
     }
 
     setPekerjaList(pekerja)
-    if (jenisOT) setJenisOvertimeList(jenisOT)
 
     // Fetch rencana for date range
     const { data: rencanaData } = await supabase
