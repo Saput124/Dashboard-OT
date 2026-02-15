@@ -419,6 +419,7 @@ function OvertimeForm({ overtime, onSave, onCancel }: any) {
           >
             <option value="1">1 jam</option>
             <option value="2">2 jam</option>
+            <option value="7">7 jam</option>
           </select>
         </div>
       </div>
