@@ -437,12 +437,16 @@ export default function Dashboard() {
         <div className="overflow-x-auto">
           {/* Header Row */}
           <div className="flex border-b-2 border-gray-300 bg-gray-50">
-            <div className="w-52 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 sticky left-0 z-20 bg-gray-50">
+            <div className="w-64 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 sticky left-0 z-20 bg-gray-50">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5" />
-                <span className="text-base">Pekerja ({pekerjaList.length})</span>
+                <span className="text-lg">Pekerja ({pekerjaList.filter(p => {
+                  const ws = scheduleData[p.id]
+                  if (!ws) return false
+                  return Object.values(ws.schedule).some(day => day.length > 0)
+                }).length})</span>
               </div>
-              <div className="text-[10px] font-normal text-gray-600">Jam: Rencana | Aktual</div>
+              <div className="text-xs font-normal text-gray-600 mt-1">Status & Pencapaian</div>
             </div>
             {dates.map((date, i) => {
               const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
@@ -450,12 +454,12 @@ export default function Dashboard() {
               return (
                 <div 
                   key={i} 
-                  className={`w-32 flex-shrink-0 p-2 text-center border-r border-gray-200 ${
+                  className={`w-36 flex-shrink-0 p-2 text-center border-r border-gray-200 ${
                     isToday ? 'bg-blue-100 font-bold' : ''
                   } ${isWeekend ? 'bg-yellow-50' : ''}`}
                 >
-                  <div className="text-sm font-semibold">{getShortDayName(format(date, 'yyyy-MM-dd'))}</div>
-                  <div className={`text-base ${isToday ? 'text-blue-700' : ''}`}>
+                  <div className="text-base font-semibold">{getShortDayName(format(date, 'yyyy-MM-dd'))}</div>
+                  <div className={`text-lg font-bold ${isToday ? 'text-blue-700' : ''}`}>
                     {format(date, 'dd/MM')}
                   </div>
                 </div>
@@ -489,21 +493,72 @@ export default function Dashboard() {
                 }
               })
             })
+            
+            // Skip pekerja yang tidak punya jadwal sama sekali
+            if (totalJamRencana === 0) return null
+            
+            // Hitung persentase dan status
+            const persentase = totalJamRencana > 0 ? (totalJamAktual / totalJamRencana) * 100 : 0
+            let statusBadge = { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Belum Input' }
+            
+            if (totalJamAktual > 0) {
+              if (persentase >= 90) {
+                statusBadge = { bg: 'bg-emerald-100', text: 'text-emerald-800', label: '✓ Optimal' }
+              } else if (persentase >= 70) {
+                statusBadge = { bg: 'bg-blue-100', text: 'text-blue-800', label: '→ Baik' }
+              } else if (persentase >= 50) {
+                statusBadge = { bg: 'bg-orange-100', text: 'text-orange-800', label: '⚠ Cukup' }
+              } else {
+                statusBadge = { bg: 'bg-red-100', text: 'text-red-800', label: '✗ Kurang' }
+              }
+            }
 
             return (
               <div key={pekerja.id} className="flex border-b border-gray-200 hover:bg-gray-50">
-                <div className="w-52 flex-shrink-0 p-2 font-medium border-r-2 border-gray-300 bg-white sticky left-0 z-10">
-                  <div className="text-base font-semibold truncate" title={pekerja.nama}>
+                <div className="w-64 flex-shrink-0 p-3 font-medium border-r-2 border-gray-300 bg-white sticky left-0 z-10">
+                  <div className="text-lg font-bold truncate" title={pekerja.nama}>
                     {pekerja.nama}
                   </div>
-                  <div className="text-sm text-gray-500">{pekerja.nik}</div>
-                  <div className="text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
-                    <span className="text-blue-700">{totalJamRencana}j</span>
-                    <span className="text-gray-400 mx-1">|</span>
-                    <span className={totalJamAktual < totalJamRencana ? 'text-orange-600' : 'text-emerald-600'}>
-                      {totalJamAktual}j
-                    </span>
+                  <div className="text-base text-gray-600">{pekerja.nik}</div>
+                  
+                  {/* Status Badge */}
+                  <div className={`mt-2 px-2 py-1 rounded text-xs font-bold ${statusBadge.bg} ${statusBadge.text} text-center`}>
+                    {statusBadge.label}
                   </div>
+                  
+                  {/* Jam Rencana vs Aktual */}
+                  <div className="text-sm font-bold mt-2 pt-2 border-t border-gray-200 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-gray-500">Rencana</div>
+                      <div className="text-blue-700">{totalJamRencana} jam</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Aktual</div>
+                      <div className={totalJamAktual < totalJamRencana ? 'text-orange-600' : 'text-emerald-600'}>
+                        {totalJamAktual} jam
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Persentase */}
+                  {totalJamAktual > 0 && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-gray-600">Pencapaian</span>
+                        <span className="font-bold">{persentase.toFixed(0)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full ${
+                            persentase >= 90 ? 'bg-emerald-500' :
+                            persentase >= 70 ? 'bg-blue-500' :
+                            persentase >= 50 ? 'bg-orange-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(persentase, 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
@@ -519,16 +574,16 @@ export default function Dashboard() {
                   return (
                     <div 
                       key={i} 
-                      className={`w-32 flex-shrink-0 p-1 border-r border-gray-200 ${
+                      className={`w-36 flex-shrink-0 p-2 border-r border-gray-200 ${
                         isWeekend ? 'bg-yellow-50' : 'bg-white'
                       }`}
                     >
                       {filteredSchedule.length === 0 ? (
                         <div className="h-full flex items-center justify-center">
-                          <div className="w-full h-8 bg-gray-50 rounded"></div>
+                          <div className="w-full h-10 bg-gray-50 rounded"></div>
                         </div>
                       ) : (
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           {filteredSchedule.length === 1 ? (
                             // Single OT
                             (() => {
@@ -548,13 +603,13 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-sm px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  className={`px-2 py-2 rounded ${bgColor} shadow-sm`}
                                   title={`${item.jenis} - ${item.durasi} jam - Grup ${item.grup}`}
                                 >
-                                  <div className={`font-bold text-[11px] truncate ${textColor}`}>
+                                  <div className={`font-bold text-sm truncate ${textColor}`}>
                                     {item.jenis}
                                   </div>
-                                  <div className={`text-[10px] flex justify-between mt-0.5 ${textColor} opacity-80`}>
+                                  <div className={`text-xs flex justify-between mt-1 ${textColor} opacity-80`}>
                                     <span className="font-semibold">{item.durasi}j</span>
                                     <span>G{item.grup}</span>
                                   </div>
@@ -584,17 +639,17 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-sm px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  className={`px-2 py-2 rounded ${bgColor} shadow-sm`}
                                   title={filteredSchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
                                 >
-                                  <div className={`font-bold text-[10px] ${textColor} leading-tight space-y-0.5`}>
+                                  <div className={`font-bold text-xs ${textColor} leading-tight space-y-0.5`}>
                                     {filteredSchedule.map((item, idx) => (
                                       <div key={idx} className="truncate">
                                         • {item.jenis} {item.durasi}j
                                       </div>
                                     ))}
                                   </div>
-                                  <div className={`text-[10px] font-bold mt-1 pt-1 border-t ${textColor} border-current opacity-50`}>
+                                  <div className={`text-xs font-bold mt-1 pt-1 border-t ${textColor} border-current opacity-50`}>
                                     Σ {totalJam}j
                                   </div>
                                 </div>
@@ -608,7 +663,9 @@ export default function Dashboard() {
                 })}
               </div>
             )
-          })}
+          })
+          .filter(Boolean) // Remove null entries
+          }}
         </div>
       </div>
 
