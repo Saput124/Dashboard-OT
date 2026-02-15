@@ -3,8 +3,6 @@ import { supabase } from '../lib/supabase'
 import { getWorkDays } from './holidays'
 import type { JenisOvertime, Pekerja } from '../types'
 
-const MAX_JAM_OT_PER_HARI = 2 // Hard limit: max 2 jam OT per hari per pekerja
-
 interface GenerateOptions {
   startDate: Date
   endDate: Date
@@ -12,17 +10,23 @@ interface GenerateOptions {
   selectedOvertimeIds: string[]
   intervalDays?: number // Rotasi setiap berapa hari (default 4)
   excludeWeekends?: boolean // Skip Minggu & tanggal merah (default true)
+  maxHoursPerDay?: number // Maksimal jam OT per hari per pekerja (default 2)
 }
 
 /**
- * Fetch existing OT schedules untuk periode tertentu
- * Returns: { tanggal: { pekerjaId: totalJam } }
+ * Fetch existing OT assignments from database for given date range
+ * Returns map: { [tanggal]: { [pekerjaId]: totalJam } }
  */
-const fetchExistingSchedules = async (workDays: Date[]) => {
-  const dateStrings = workDays.map(d => format(d, 'yyyy-MM-dd'))
+const fetchExistingAssignments = async (
+  startDate: Date, 
+  endDate: Date, 
+  pekerjaIds: string[]
+): Promise<{ [tanggal: string]: { [pekerjaId: string]: number } }> => {
+  const startDateStr = format(startDate, 'yyyy-MM-dd')
+  const endDateStr = format(endDate, 'yyyy-MM-dd')
   
-  // Fetch rencana_overtime + pekerja_rencana + jenis_overtime
-  const { data: rencanaData, error } = await supabase
+  // Fetch existing rencana for this period
+  const { data: existingRencana } = await supabase
     .from('rencana_overtime')
     .select(`
       id,
@@ -32,90 +36,81 @@ const fetchExistingSchedules = async (workDays: Date[]) => {
         pekerja_id
       )
     `)
-    .in('tanggal', dateStrings)
+    .gte('tanggal', startDateStr)
+    .lte('tanggal', endDateStr)
   
-  if (error) {
-    console.error('Error fetching existing schedules:', error)
-    return {}
-  }
+  const dailyWorkloadMap: { [tanggal: string]: { [pekerjaId: string]: number } } = {}
   
-  // Build map: { tanggal: { pekerjaId: totalJam } }
-  const scheduleMap: { [tanggal: string]: { [pekerjaId: string]: number } } = {}
-  
-  dateStrings.forEach(date => {
-    scheduleMap[date] = {}
-  })
-  
-  if (rencanaData) {
-    rencanaData.forEach((rencana: any) => {
+  if (existingRencana) {
+    for (const rencana of existingRencana) {
       const tanggal = rencana.tanggal
-      const durasiJam = rencana.durasi_jam || 0
       
-      if (rencana.pekerja_rencana) {
-        rencana.pekerja_rencana.forEach((pr: any) => {
-          const pekerjaId = pr.pekerja_id
-          if (!scheduleMap[tanggal][pekerjaId]) {
-            scheduleMap[tanggal][pekerjaId] = 0
-          }
-          scheduleMap[tanggal][pekerjaId] += durasiJam
-        })
+      if (!dailyWorkloadMap[tanggal]) {
+        dailyWorkloadMap[tanggal] = {}
       }
-    })
-    
-    // Debug: count how many existing assignments
-    let totalAssignments = 0
-    Object.values(scheduleMap).forEach(dayMap => {
-      totalAssignments += Object.keys(dayMap).length
-    })
-    console.log(`📊 Loaded ${rencanaData.length} rencana records, ${totalAssignments} total assignments`)
+      
+      // Add workload for each assigned pekerja
+      if (rencana.pekerja_rencana) {
+        for (const pr of rencana.pekerja_rencana) {
+          const pekerjaId = pr.pekerja_id
+          
+          if (pekerjaIds.includes(pekerjaId)) {
+            if (!dailyWorkloadMap[tanggal][pekerjaId]) {
+              dailyWorkloadMap[tanggal][pekerjaId] = 0
+            }
+            dailyWorkloadMap[tanggal][pekerjaId] += rencana.durasi_jam
+          }
+        }
+      }
+    }
   }
   
-  return scheduleMap
+  console.log('=== EXISTING ASSIGNMENTS ===')
+  console.log('Dates with assignments:', Object.keys(dailyWorkloadMap))
+  Object.entries(dailyWorkloadMap).forEach(([tanggal, workloads]) => {
+    const workersWithOT = Object.keys(workloads).length
+    console.log(`${tanggal}: ${workersWithOT} pekerja sudah ada OT`)
+  })
+  console.log('============================')
+  
+  return dailyWorkloadMap
 }
 
 /**
- * Check apakah pekerja bisa ditambah OT pada hari tertentu
- */
-const canAssignOT = (
-  pekerjaId: string,
-  tanggal: string,
-  durasiJam: number,
-  existingSchedules: { [tanggal: string]: { [pekerjaId: string]: number } }
-): boolean => {
-  const currentJam = existingSchedules[tanggal]?.[pekerjaId] || 0
-  const canAssign = (currentJam + durasiJam) <= MAX_JAM_OT_PER_HARI
-  
-  // Debug log
-  if (currentJam > 0) {
-    console.log(`  Check ${pekerjaId.substring(0, 8)}... on ${tanggal}: ${currentJam}j existing + ${durasiJam}j new = ${currentJam + durasiJam}j → ${canAssign ? 'OK' : 'SKIP'}`)
-  }
-  
-  return canAssign
-}
-
-/**
- * Algoritma Fair Rotation dengan Round-Robin
+ * Algoritma Smart Assignment dengan MAX HOURS PER DAY CONSTRAINT
  * 
- * TUJUAN: Distribusi JAM OT yang merata untuk semua pekerja
+ * TUJUAN: 
+ * 1. Distribusi JAM OT yang merata untuk semua pekerja
+ * 2. BATASAN: Maksimal 2 jam OT per hari per pekerja
+ * 3. SUPPORT: Multi-generate (Lightrap + Recolonisasi + Kupu Pagi dalam periode sama)
  * 
  * CARA KERJA:
- * 1. Kelompok pekerja yang sama bekerja bersama untuk X hari (intervalDays)
- * 2. Track TOTAL JAM OT per pekerja (bukan cuma jumlah hari)
- * 3. Auto-balance: replace pekerja yang over dengan yang under
+ * 1. Fetch existing assignments dari database
+ * 2. Untuk setiap hari:
+ *    a. Build available pool (pekerja yang bisa ditambah: currentWorkload + durasi <= maxHours)
+ *    b. Sort by priority: daily workload → assignment count → total jam
+ *    c. Assign dari pool (ambil top N)
+ * 3. Skip auto-balance jika multi-generate (untuk avoid conflict)
  * 
- * CONTOH:
- * - 20 pekerja, alokasi 13/hari, interval 4 hari, 12 hari kerja, 2 jam/hari
- * - Total JAM OT: 12 × 13 × 2 = 312 jam
- * - Target per orang: 312 ÷ 20 = 15.6 jam (sekitar 8 hari)
+ * CONTOH MULTI-GENERATE:
  * 
- * Periode 1 (16-19 Feb): Pekerja 1-13 → 4 hari × 2 jam = 8 jam
- * Periode 2 (20-22,24 Feb): Pekerja 14-20,1-6 → 4 hari × 2 jam = 8 jam
- * Periode 3 (25-28 Feb): Pekerja 7-19 → 4 hari × 2 jam = 8 jam
+ * Generate 1 (Lightrap 2 jam, alokasi 13):
+ * - Pilih 31 pekerja
+ * - 16 Feb: Pekerja 1-13 → 2 jam
+ * - Save to database
  * 
- * Auto-balance: Pekerja 20 hanya 8 jam (kurang 8 jam!)
- * → Replace 4 hari di Periode 3
+ * Generate 2 (Kupu Pagi 1 jam, alokasi 26):
+ * - Pilih 39 pekerja (31 dari Lightrap + 8 tambahan)
+ * - Fetch existing: Pekerja 1-13 = 2 jam
+ * - Build pool 16 Feb:
+ *   - Pekerja 1-13: 2+1=3 jam > 2 → SKIP ❌
+ *   - Pekerja 14-39: 0+1=1 jam <= 2 → AVAILABLE ✅ (26 pekerja)
+ * - Assign: Pekerja 14-39 (26 pekerja) ✅
  * 
- * HASIL: Semua 14-16 jam (gap ≤ 2 jam)
+ * HASIL:
+ * - Pekerja 1-13:  2 jam (Lightrap only)
+ * - Pekerja 14-39: 1 jam (Kupu Pagi only)
+ * - TIDAK ADA yang > 2 jam! ✅
  */
 export const generateBalancedRotationSchedule = async (
   options: GenerateOptions,
@@ -128,7 +123,8 @@ export const generateBalancedRotationSchedule = async (
     selectedPekerjaIds, 
     selectedOvertimeIds,
     intervalDays = 4,
-    excludeWeekends = true
+    excludeWeekends = true,
+    maxHoursPerDay = 2
   } = options
   
   // Filter pekerja & overtime
@@ -155,37 +151,19 @@ export const generateBalancedRotationSchedule = async (
   console.log('First:', workDays[0] ? format(workDays[0], 'yyyy-MM-dd') : 'none')
   console.log('Last:', workDays[totalWorkDays - 1] ? format(workDays[totalWorkDays - 1], 'yyyy-MM-dd') : 'none')
   console.log('===================')
-  console.log('=== ROTATION DEBUG ===')
-  console.log('Start date:', startDate.toISOString())
-  console.log('End date:', endDate.toISOString())
-  console.log('Exclude weekends:', excludeWeekends)
-  console.log('Work days:', workDays.map(d => format(d, 'yyyy-MM-dd')))
-  console.log('Total work days:', totalWorkDays)
-  console.log('=====================')
   
   if (totalWorkDays === 0) {
-    throw new Error('Tidak ada hari kerja dalam periode yang dipilkan (semua Minggu/libur)')
+    throw new Error('Tidak ada hari kerja dalam periode yang dipilih (semua Minggu/libur)')
   }
   
-  // Fetch existing schedules untuk enforce max 2 jam per hari
-  const existingSchedules = await fetchExistingSchedules(workDays)
-  console.log('=== MAX JAM CHECK ===')
-  console.log('Existing schedules loaded for', Object.keys(existingSchedules).length, 'days')
-  console.log('Max jam per hari:', MAX_JAM_OT_PER_HARI, 'jam')
-  
-  // Count total existing assignments
-  let totalExisting = 0
-  Object.values(existingSchedules).forEach(dayMap => {
-    totalExisting += Object.keys(dayMap).length
-  })
-  console.log('Total existing assignments:', totalExisting)
-  
-  if (totalExisting === 0) {
-    console.warn('⚠️  WARNING: Tidak ada jadwal existing! Pastikan Anda sudah SAVE generate sebelumnya.')
-    console.warn('⚠️  Jika ada OT lain (misal Light Trap), SAVE dulu sebelum generate OT berikutnya!')
-  }
-  
-  console.log('=====================')
+  // ========================================
+  // FETCH EXISTING ASSIGNMENTS (PENTING!)
+  // ========================================
+  const existingWorkloadMap = await fetchExistingAssignments(
+    startDate, 
+    endDate, 
+    selectedPekerjaIds
+  )
   
   const schedules: any[] = []
   
@@ -194,6 +172,10 @@ export const generateBalancedRotationSchedule = async (
     const alokasi = jenisOT.alokasi_pekerja
     const totalPekerja = selectedPekerja.length
     const durasiJam = jenisOT.durasi_jam
+    
+    console.log(`\n=== PROCESSING: ${jenisOT.nama} (${durasiJam} jam) ===`)
+    console.log(`Alokasi: ${alokasi} pekerja per hari`)
+    console.log(`Max hours per day: ${maxHoursPerDay} jam`)
     
     // Target JAM OT per pekerja (BUKAN hari!)
     const totalJamOT = totalWorkDays * alokasi * durasiJam
@@ -207,143 +189,169 @@ export const generateBalancedRotationSchedule = async (
     const tempSchedule: { [tanggal: string]: Pekerja[] } = {}
     
     // ========================================
-    // FASE 1: Round-Robin dengan Interval
+    // FASE 1: Smart Assignment dengan Prioritas Available Workers
     // ========================================
-    // Kelompok pekerja yang SAMA bekerja bersama untuk intervalDays hari
+    // TIDAK PAKAI strict round-robin index!
+    // Prioritas: pekerja yang BISA ditambah (< maxHours)
     
-    let pekerjaStartIndex = 0
-    let daysInCurrentPeriod = 0
+    let currentRotationGroup = 0
+    const assignedDaysCount: { [pekerjaId: string]: number } = {}
+    selectedPekerja.forEach(p => { assignedDaysCount[p.id] = 0 })
     
     for (let dayIndex = 0; dayIndex < totalWorkDays; dayIndex++) {
+      // Ganti grup setiap intervalDays (optional - untuk variety)
+      if (dayIndex > 0 && dayIndex % intervalDays === 0) {
+        currentRotationGroup++
+      }
+      
       const currentDate = workDays[dayIndex]
       const tanggal = format(currentDate, 'yyyy-MM-dd')
       
-      // Check apakah perlu ganti periode (setelah intervalDays hari KERJA)
-      if (daysInCurrentPeriod >= intervalDays) {
-        // Ganti periode
-        pekerjaStartIndex += alokasi
-        daysInCurrentPeriod = 0
-        console.log(`🔄 Ganti periode di ${tanggal}, pekerjaStartIndex → ${pekerjaStartIndex}`)
-      }
+      // Get existing workload untuk hari ini
+      const existingWorkload = existingWorkloadMap[tanggal] || {}
       
-      // Pilih pekerja untuk hari ini - INTERVAL BASED dengan skip untuk max jam
-      const periodPekerja: Pekerja[] = []
+      console.log(`\n[${tanggal}] Assigning ${alokasi} pekerja...`)
+      console.log(`Existing workload:`, Object.keys(existingWorkload).length, 'pekerja sudah ada OT')
       
-      // Mulai dari pekerjaStartIndex (untuk konsistensi interval/kelompok)
-      let candidateIndex = pekerjaStartIndex
-      let attempts = 0
-      const maxAttempts = totalPekerja * 3 // Prevent infinite loop
-      
-      console.log(`📅 ${tanggal} (periode ${Math.floor(dayIndex / intervalDays) + 1}, hari ${daysInCurrentPeriod + 1}/${intervalDays}): Start index ${pekerjaStartIndex}`)
-      
-      while (periodPekerja.length < alokasi && attempts < maxAttempts) {
-        const pekerja = selectedPekerja[candidateIndex % totalPekerja]
-        
-        // Check apakah pekerja ini bisa ditambah OT (max 2 jam per hari)
-        if (canAssignOT(pekerja.id, tanggal, durasiJam, existingSchedules)) {
-          periodPekerja.push(pekerja)
-        } else {
-          // Skip pekerja ini, sudah max 2 jam hari ini
-          const currentJam = existingSchedules[tanggal]?.[pekerja.id] || 0
-          if (currentJam > 0) {
-            console.log(`  ⏭️  Skip ${pekerja.nama} (${currentJam}j + ${durasiJam}j > 2j)`)
+      // Build pool pekerja yang BISA ditambah
+      const availablePool = selectedPekerja
+        .filter(p => {
+          const currentDailyWorkload = existingWorkload[p.id] || 0
+          return (currentDailyWorkload + durasiJam) <= maxHoursPerDay
+        })
+        .sort((a, b) => {
+          // Sort by:
+          // 1. Daily workload (ascending) - yang paling sedikit hari ini
+          const aDailyWorkload = existingWorkload[a.id] || 0
+          const bDailyWorkload = existingWorkload[b.id] || 0
+          if (aDailyWorkload !== bDailyWorkload) {
+            return aDailyWorkload - bDailyWorkload
           }
-        }
-        
-        candidateIndex++
-        attempts++
+          
+          // 2. Assignment count (ascending) - yang paling jarang dapat
+          if (assignedDaysCount[a.id] !== assignedDaysCount[b.id]) {
+            return assignedDaysCount[a.id] - assignedDaysCount[b.id]
+          }
+          
+          // 3. Total jam OT (ascending)
+          return jamOTTracker[a.id] - jamOTTracker[b.id]
+        })
+      
+      console.log(`Available pool: ${availablePool.length} pekerja`)
+      
+      if (availablePool.length < alokasi) {
+        console.warn(`⚠️ WARNING: Hanya ${availablePool.length} pekerja available, butuh ${alokasi}!`)
+        console.warn(`   Kemungkinan: terlalu banyak pekerja sudah >= ${maxHoursPerDay} jam hari ini`)
       }
       
-      // Warning jika tidak cukup pekerja
-      if (periodPekerja.length < alokasi) {
-        console.warn(`⚠️  ${tanggal}: Hanya ${periodPekerja.length}/${alokasi} pekerja tersedia`)
+      // Assign dari available pool
+      const periodPekerja = availablePool.slice(0, alokasi)
+      
+      if (periodPekerja.length === 0) {
+        console.error(`❌ TIDAK ADA pekerja available untuk ${tanggal}!`)
+        console.error(`   Semua pekerja sudah >= ${maxHoursPerDay} jam`)
+        // Skip hari ini
+        continue
       }
       
-      console.log(`  ✅ Assigned ${periodPekerja.length} pekerja:`, periodPekerja.map(p => p.nama).join(', '))
-      console.log(`  ✅ Assigned ${periodPekerja.length} pekerja:`, periodPekerja.map(p => p.nama).join(', '))
+      console.log(`✅ Assigned ${periodPekerja.length} pekerja`)
       
       // Assign
       tempSchedule[tanggal] = [...periodPekerja]
       
-      // Update JAM OT (both tracker and existing schedules)
+      // Update trackers
       periodPekerja.forEach(p => {
         jamOTTracker[p.id] += durasiJam
+        assignedDaysCount[p.id] += 1
         
-        // Update existing schedules untuk hari berikutnya
-        if (!existingSchedules[tanggal][p.id]) {
-          existingSchedules[tanggal][p.id] = 0
+        // Update existing workload map untuk hari ini
+        if (!existingWorkload[p.id]) {
+          existingWorkload[p.id] = 0
         }
-        existingSchedules[tanggal][p.id] += durasiJam
+        existingWorkload[p.id] += durasiJam
       })
       
-      // Increment days in current period
-      daysInCurrentPeriod++
+      // Update map untuk next iteration
+      existingWorkloadMap[tanggal] = existingWorkload
     }
     
     // ========================================
     // FASE 2: Auto-Balance berdasarkan JAM OT
     // ========================================
+    // Disabled untuk multi-generate scenario karena bisa conflict dengan existing assignments
+    // Auto-balance hanya efektif untuk single generate
     
     const sortedByJam = Object.entries(jamOTTracker)
       .sort(([, jamA], [, jamB]) => jamA - jamB)
     
-    const minJam = sortedByJam[0][1]
-    const maxJam = sortedByJam[sortedByJam.length - 1][1]
-    const gapJam = maxJam - minJam
-    
-    // Balance jika gap > 1 hari OT
-    if (gapJam > durasiJam) {
-      const underAssigned = sortedByJam
-        .filter(([, jam]) => jam < targetJamPerPerson)
-        .map(([id]) => id)
+    if (sortedByJam.length > 0) {
+      const minJam = sortedByJam[0][1]
+      const maxJam = sortedByJam[sortedByJam.length - 1][1]
+      const gapJam = maxJam - minJam
       
-      const overAssigned = sortedByJam
-        .filter(([, jam]) => jam > targetJamPerPerson)
-        .map(([id]) => id)
+      console.log(`\nJam OT range: ${minJam} - ${maxJam} jam (gap: ${gapJam} jam)`)
+      console.log(`Target per person: ${targetJamPerPerson.toFixed(1)} jam`)
       
-      // Replace dari hari terakhir ke awal
-      for (const underId of underAssigned) {
-        const underPekerja = selectedPekerja.find(p => p.id === underId)!
-        const needMoreJam = targetJamPerPerson - jamOTTracker[underId]
+      // Only balance if gap is significant AND we're not in multi-generate scenario
+      // (Skip balance if there are existing assignments - menghindari conflict)
+      const hasExistingAssignments = Object.keys(existingWorkloadMap).length > 0
+      
+      if (gapJam > durasiJam * 2 && !hasExistingAssignments) {
+        console.log('Auto-balancing... (single generate mode)')
         
-        if (needMoreJam <= 0) continue
+        const underAssigned = sortedByJam
+          .filter(([, jam]) => jam < targetJamPerPerson - durasiJam)
+          .map(([id]) => id)
         
-        let replacedJam = 0
+        const overAssigned = sortedByJam
+          .filter(([, jam]) => jam > targetJamPerPerson + durasiJam)
+          .map(([id]) => id)
         
-        // Loop dari belakang
-        for (let i = workDays.length - 1; i >= 0 && replacedJam < needMoreJam; i--) {
-          const tanggal = format(workDays[i], 'yyyy-MM-dd')
-          const dayAssignments = tempSchedule[tanggal]
+        console.log(`Under-assigned: ${underAssigned.length} pekerja`)
+        console.log(`Over-assigned: ${overAssigned.length} pekerja`)
+        
+        // Replace logic (simplified - untuk single generate saja)
+        let balanceCount = 0
+        for (const underId of underAssigned.slice(0, 5)) { // Limit to 5 replacements
+          const underPekerja = selectedPekerja.find(p => p.id === underId)!
           
-          // Cari pekerja yang over untuk di-replace
-          for (let j = 0; j < dayAssignments.length; j++) {
-            const currentPekerja = dayAssignments[j]
+          for (let i = workDays.length - 1; i >= 0 && balanceCount < 10; i--) {
+            const tanggal = format(workDays[i], 'yyyy-MM-dd')
+            const dayAssignments = tempSchedule[tanggal]
             
-            if (
-              overAssigned.includes(currentPekerja.id) &&
-              currentPekerja.id !== underId &&
-              !dayAssignments.some(p => p.id === underId) &&
-              jamOTTracker[currentPekerja.id] > targetJamPerPerson
-            ) {
-              // REPLACE!
-              dayAssignments[j] = underPekerja
-              jamOTTracker[currentPekerja.id] -= durasiJam
-              jamOTTracker[underId] += durasiJam
-              replacedJam += durasiJam
-              break
+            if (!dayAssignments) continue
+            
+            for (let j = 0; j < dayAssignments.length; j++) {
+              const currentPekerja = dayAssignments[j]
+              
+              if (
+                overAssigned.includes(currentPekerja.id) &&
+                currentPekerja.id !== underId &&
+                !dayAssignments.some(p => p.id === underId) &&
+                jamOTTracker[currentPekerja.id] > targetJamPerPerson
+              ) {
+                dayAssignments[j] = underPekerja
+                jamOTTracker[currentPekerja.id] -= durasiJam
+                jamOTTracker[underId] += durasiJam
+                balanceCount++
+                console.log(`[${tanggal}] Balance: ${currentPekerja.nama} → ${underPekerja.nama}`)
+                break
+              }
             }
           }
         }
+        
+        console.log(`Completed ${balanceCount} balance operations`)
+      } else if (hasExistingAssignments) {
+        console.log('Skipping auto-balance (multi-generate scenario detected)')
+      } else {
+        console.log('Skipping auto-balance (gap acceptable)')
       }
     }
     
     // ========================================
     // Convert to Final Schedule
     // ========================================
-    
-    // Debug before convert
-    console.log(`[${jenisOT.nama}] tempSchedule keys:`, Object.keys(tempSchedule))
-    console.log(`[${jenisOT.nama}] Total days in tempSchedule:`, Object.keys(tempSchedule).length)
     
     Object.entries(tempSchedule).forEach(([tanggal, assignedPekerja]) => {
       const currentDate = workDays.find(d => format(d, 'yyyy-MM-dd') === tanggal)!
@@ -363,12 +371,8 @@ export const generateBalancedRotationSchedule = async (
       })
     })
     
-    // Debug after convert
-    console.log(`[${jenisOT.nama}] Generated schedules:`, schedules.length)
-    if (schedules.length > 0) {
-      console.log(`[${jenisOT.nama}] First date:`, schedules[0].tanggal)
-      console.log(`[${jenisOT.nama}] Last date:`, schedules[schedules.length - 1].tanggal)
-    }
+    console.log(`Generated ${Object.keys(tempSchedule).length} days of schedules`)
+    console.log('=================================\n')
   }
   
   schedules.sort((a, b) => a.tanggal.localeCompare(b.tanggal))
