@@ -1,9 +1,11 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, CalendarPlus, ClipboardCheck, Settings } from 'lucide-react'
+import { LayoutDashboard, CalendarPlus, ClipboardCheck, Settings, Trophy, Sun } from 'lucide-react'
 import Dashboard from './components/Dashboard'
 import RotationPlan from './components/RotationPlan'
 import ActualInput from './components/ActualInput'
 import Management from './components/Management'
+import RankingPerforma from './components/RankingPerforma'
+import JadwalLibur from './components/JadwalLibur'
 
 function Navigation() {
   const location = useLocation()
@@ -11,7 +13,9 @@ function Navigation() {
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/rotation', icon: CalendarPlus, label: 'Rencana Rotasi' },
+    { path: '/libur', icon: Sun, label: 'Jadwal Libur' },
     { path: '/actual', icon: ClipboardCheck, label: 'Input Aktual' },
+    { path: '/ranking', icon: Trophy, label: 'Ranking' },
     { path: '/management', icon: Settings, label: 'Management' },
   ]
 
@@ -59,7 +63,9 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/rotation" element={<RotationPlan />} />
+            <Route path="/libur" element={<JadwalLibur />} />
             <Route path="/actual" element={<ActualInput />} />
+            <Route path="/ranking" element={<RankingPerforma />} />
             <Route path="/management" element={<Management />} />
           </Routes>
         </main>
