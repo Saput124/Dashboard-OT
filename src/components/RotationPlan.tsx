@@ -113,7 +113,7 @@ export default function RotationPlan() {
           selectedOvertimeIds,
           intervalDays,
           excludeWeekends,
-          maxHoursPerDay: 2
+          maxHoursPerDay: 7
         },
         jenisOvertimeList,
         pekerjaList
