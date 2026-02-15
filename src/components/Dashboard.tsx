@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Calendar, ChevronLeft, ChevronRight, Users } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Users, Download, FileDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { addDays, format, startOfDay, differenceInDays } from 'date-fns'
+import { getDayName, getShortDayName } from '../utils/rotation'
+import { exportToPDF, exportToExcel } from '../utils/export'
 
 interface ScheduleData {
   [pekerjaId: string]: {
@@ -25,8 +27,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [pekerjaList, setPekerjaList] = useState<any[]>([])
   const [jenisOvertimeList, setJenisOvertimeList] = useState<any[]>([])
-  const [filterPekerjaId, setFilterPekerjaId] = useState<string>('all')
-  const [filterJenisOTId, setFilterJenisOTId] = useState<string>('all')
+  const [selectedPekerjaFilter, setSelectedPekerjaFilter] = useState<string[]>([])
+  const [selectedOvertimeFilter, setSelectedOvertimeFilter] = useState<string[]>([])
 
   const totalDays = differenceInDays(endDate, startDate) + 1
   const dates = Array.from({ length: totalDays }, (_, i) => addDays(startOfDay(startDate), i))
@@ -34,6 +36,13 @@ export default function Dashboard() {
   useEffect(() => {
     fetchScheduleBoard()
   }, [startDate, endDate])
+
+  // Auto-select all pekerja by default
+  useEffect(() => {
+    if (pekerjaList.length > 0 && selectedPekerjaFilter.length === 0) {
+      setSelectedPekerjaFilter(pekerjaList.map(p => p.id))
+    }
+  }, [pekerjaList])
 
   const fetchScheduleBoard = async () => {
     setLoading(true)
@@ -165,36 +174,6 @@ export default function Dashboard() {
       {/* Date Navigation & Range Selector */}
       <div className="card">
         <div className="space-y-4">
-          {/* Filter Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b">
-            <div>
-              <label className="label text-xs">Filter Pekerja</label>
-              <select
-                value={filterPekerjaId}
-                onChange={(e) => setFilterPekerjaId(e.target.value)}
-                className="input-field text-sm"
-              >
-                <option value="all">Semua Pekerja</option>
-                {pekerjaList.map(p => (
-                  <option key={p.id} value={p.id}>{p.nama}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label text-xs">Filter Jenis Overtime</label>
-              <select
-                value={filterJenisOTId}
-                onChange={(e) => setFilterJenisOTId(e.target.value)}
-                className="input-field text-sm"
-              >
-                <option value="all">Semua Jenis OT</option>
-                {jenisOvertimeList.map(ot => (
-                  <option key={ot.id} value={ot.id}>{ot.nama}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
           {/* Date Range Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -276,6 +255,46 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Export Section */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-lg mb-1">📥 Export Jadwal</h3>
+            <p className="text-sm text-gray-600">Download jadwal dalam format PDF atau Excel</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportToPDF(
+                scheduleData,
+                dates,
+                pekerjaList,
+                selectedPekerjaFilter,
+                selectedOvertimeFilter
+              )}
+              className="btn-secondary flex items-center gap-2 px-4 py-2"
+              title="Download jadwal dalam format PDF"
+            >
+              <FileDown className="w-4 h-4" />
+              Download PDF
+            </button>
+            <button
+              onClick={() => exportToExcel(
+                scheduleData,
+                dates,
+                pekerjaList,
+                selectedPekerjaFilter,
+                selectedOvertimeFilter
+              )}
+              className="btn-primary flex items-center gap-2 px-4 py-2"
+              title="Download jadwal dalam format Excel"
+            >
+              <Download className="w-4 h-4" />
+              Download Excel
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Legend */}
       <div className="card bg-blue-50 border border-blue-200">
         <h3 className="font-semibold mb-3 text-blue-900">Keterangan:</h3>
@@ -297,33 +316,141 @@ export default function Dashboard() {
             <span className="text-gray-600">Tidak ada tugas</span>
           </div>
         </div>
-        <div className="mt-3 pt-3 border-t border-blue-200 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-800">
-          <div>
-            <strong>💡 Border kiri</strong> = Status warna lebih jelas
+      </div>
+
+      {/* Multi-Select Filter */}
+      <div className="card bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200">
+        <h3 className="font-semibold mb-3 text-blue-900 flex items-center gap-2 text-lg">
+          <span>🎛️</span> Filter Tampilan
+        </h3>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Filter Pekerja */}
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-semibold text-gray-700">👥 Filter Pekerja</label>
+              <button
+                onClick={() => {
+                  if (selectedPekerjaFilter.length === pekerjaList.length) {
+                    setSelectedPekerjaFilter([])
+                  } else {
+                    setSelectedPekerjaFilter(pekerjaList.map(p => p.id))
+                  }
+                }}
+                className="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
+              >
+                {selectedPekerjaFilter.length === pekerjaList.length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto bg-gray-50 rounded p-3 space-y-1.5 border border-gray-200">
+              {pekerjaList.map(pekerja => (
+                <label 
+                  key={pekerja.id} 
+                  className="flex items-center gap-2 text-sm hover:bg-white p-2 rounded cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedPekerjaFilter.includes(pekerja.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPekerjaFilter([...selectedPekerjaFilter, pekerja.id])
+                      } else {
+                        setSelectedPekerjaFilter(selectedPekerjaFilter.filter(id => id !== pekerja.id))
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="font-medium">{pekerja.nama}</span>
+                  <span className="text-xs text-gray-500">({pekerja.nik})</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-xs text-gray-600 mt-2 px-1">
+              Terpilih: <span className="font-semibold text-blue-600">{selectedPekerjaFilter.length}</span> dari {pekerjaList.length} pekerja
+            </div>
           </div>
-          <div>
-            <strong>📊 Rencana | Aktual</strong> = Di bawah nama pekerja
+
+          {/* Filter Jenis OT */}
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-semibold text-gray-700">⏰ Filter Jenis Overtime</label>
+              <button
+                onClick={() => {
+                  const uniqueOT = Array.from(
+                    new Set(
+                      Object.values(scheduleData).flatMap((worker: any) => 
+                        Object.values(worker.schedule).flatMap((day: any) =>
+                          day.map((item: any) => item.jenis)
+                        )
+                      )
+                    )
+                  )
+                  
+                  if (selectedOvertimeFilter.length === uniqueOT.length) {
+                    setSelectedOvertimeFilter([])
+                  } else {
+                    setSelectedOvertimeFilter(uniqueOT as string[])
+                  }
+                }}
+                className="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
+              >
+                {selectedOvertimeFilter.length > 0 ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto bg-gray-50 rounded p-3 space-y-1.5 border border-gray-200">
+              {Array.from(
+                new Set(
+                  Object.values(scheduleData).flatMap((worker: any) => 
+                    Object.values(worker.schedule).flatMap((day: any) =>
+                      day.map((item: any) => item.jenis)
+                    )
+                  )
+                )
+              ).map((jenisName: any) => (
+                <label 
+                  key={jenisName} 
+                  className="flex items-center gap-2 text-sm hover:bg-white p-2 rounded cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedOvertimeFilter.includes(jenisName)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedOvertimeFilter([...selectedOvertimeFilter, jenisName])
+                      } else {
+                        setSelectedOvertimeFilter(selectedOvertimeFilter.filter(name => name !== jenisName))
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="font-medium">{jenisName}</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-xs text-gray-600 mt-2 px-1">
+              Terpilih: <span className="font-semibold text-blue-600">{selectedOvertimeFilter.length}</span> jenis overtime
+            </div>
           </div>
-          <div>
-            <strong>🔒 Nama freeze</strong> = Saat scroll horizontal, nama tetap terlihat
-          </div>
-          <div>
-            <strong>📦 Multiple OT</strong> = Auto gabung dalam 1 card + total jam
-          </div>
+        </div>
+        
+        <div className="mt-4 p-3 bg-blue-100 rounded-lg border border-blue-300">
+          <p className="text-sm text-blue-800">
+            💡 <strong>Tip:</strong> Filter ini juga berlaku untuk export PDF & Excel
+          </p>
         </div>
       </div>
 
       {/* Schedule Board */}
-      <div className="card overflow-x-auto">
-        <div className="min-w-max relative">
-          {/* Header Row - Dates */}
-          <div className="flex border-b-2 border-gray-300 bg-gray-50 sticky top-0 z-10">
-            <div className="w-52 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 flex items-center gap-2 bg-white sticky left-0 z-20">
-              <Users className="w-5 h-5" />
-              <div>
-                <div>Pekerja ({pekerjaList.filter(p => filterPekerjaId === 'all' || p.id === filterPekerjaId).length})</div>
-                <div className="text-[10px] font-normal text-gray-600">Jam: Rencana | Aktual</div>
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          {/* Header Row */}
+          <div className="flex border-b-2 border-gray-300 bg-gray-50">
+            <div className="w-52 flex-shrink-0 p-3 font-semibold border-r-2 border-gray-300 sticky left-0 z-20 bg-gray-50">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                <span className="text-base">Pekerja ({pekerjaList.length})</span>
               </div>
+              <div className="text-[10px] font-normal text-gray-600">Jam: Rencana | Aktual</div>
             </div>
             {dates.map((date, i) => {
               const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
@@ -335,8 +462,8 @@ export default function Dashboard() {
                     isToday ? 'bg-blue-100 font-bold' : ''
                   } ${isWeekend ? 'bg-yellow-50' : ''}`}
                 >
-                  <div className="text-xs font-semibold">{format(date, 'EEE')}</div>
-                  <div className={`text-sm ${isToday ? 'text-blue-700' : ''}`}>
+                  <div className="text-sm font-semibold">{getShortDayName(format(date, 'yyyy-MM-dd'))}</div>
+                  <div className={`text-base ${isToday ? 'text-blue-700' : ''}`}>
                     {format(date, 'dd/MM')}
                   </div>
                 </div>
@@ -346,28 +473,7 @@ export default function Dashboard() {
 
           {/* Data Rows - Workers */}
           {pekerjaList
-            .filter(p => {
-              // Filter berdasarkan pekerja
-              if (filterPekerjaId !== 'all' && p.id !== filterPekerjaId) {
-                return false
-              }
-              
-              // Filter berdasarkan jenis OT: hanya tampilkan pekerja yang punya jadwal OT tersebut
-              if (filterJenisOTId !== 'all') {
-                const workerSchedule = scheduleData[p.id]
-                if (!workerSchedule) return false
-                
-                // Cek apakah pekerja ini punya jadwal untuk jenis OT yang dipilih
-                const hasThisOT = Object.values(workerSchedule.schedule).some(daySchedule => 
-                  daySchedule.some(item => 
-                    jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                  )
-                )
-                return hasThisOT
-              }
-              
-              return true
-            })
+            .filter(pekerja => selectedPekerjaFilter.includes(pekerja.id))
             .map((pekerja) => {
             const workerSchedule = scheduleData[pekerja.id]
             if (!workerSchedule) return null
@@ -377,14 +483,17 @@ export default function Dashboard() {
             let totalJamAktual = 0
             dates.forEach(date => {
               const tanggal = format(date, 'yyyy-MM-dd')
-              const daySchedule = (workerSchedule.schedule[tanggal] || [])
-                .filter(item => filterJenisOTId === 'all' || 
-                  jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                )
-              daySchedule.forEach(item => {
-                totalJamRencana += item.durasi // Tambah JAM, bukan count
+              const daySchedule = workerSchedule.schedule[tanggal] || []
+              
+              // Apply overtime filter
+              const filteredSchedule = selectedOvertimeFilter.length > 0
+                ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
+                : daySchedule
+              
+              filteredSchedule.forEach(item => {
+                totalJamRencana += item.durasi
                 if (item.hasActual && item.dilaksanakan) {
-                  totalJamAktual += item.durasi // Tambah JAM, bukan count
+                  totalJamAktual += item.durasi
                 }
               })
             })
@@ -392,10 +501,10 @@ export default function Dashboard() {
             return (
               <div key={pekerja.id} className="flex border-b border-gray-200 hover:bg-gray-50">
                 <div className="w-52 flex-shrink-0 p-2 font-medium border-r-2 border-gray-300 bg-white sticky left-0 z-10">
-                  <div className="text-sm font-semibold truncate" title={pekerja.nama}>
+                  <div className="text-base font-semibold truncate" title={pekerja.nama}>
                     {pekerja.nama}
                   </div>
-                  <div className="text-xs text-gray-500">{pekerja.nik}</div>
+                  <div className="text-sm text-gray-500">{pekerja.nik}</div>
                   <div className="text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
                     <span className="text-blue-700">{totalJamRencana}j</span>
                     <span className="text-gray-400 mx-1">|</span>
@@ -406,10 +515,13 @@ export default function Dashboard() {
                 </div>
                 {dates.map((date, i) => {
                   const tanggal = format(date, 'yyyy-MM-dd')
-                  const daySchedule = (workerSchedule.schedule[tanggal] || [])
-                    .filter(item => filterJenisOTId === 'all' || 
-                      jenisOvertimeList.find(ot => ot.nama === item.jenis)?.id === filterJenisOTId
-                    )
+                  const daySchedule = workerSchedule.schedule[tanggal] || []
+                  
+                  // Apply overtime filter
+                  const filteredSchedule = selectedOvertimeFilter.length > 0
+                    ? daySchedule.filter(item => selectedOvertimeFilter.includes(item.jenis))
+                    : daySchedule
+                  
                   const isWeekend = date.getDay() === 0 || date.getDay() === 6
 
                   return (
@@ -419,17 +531,16 @@ export default function Dashboard() {
                         isWeekend ? 'bg-yellow-50' : 'bg-white'
                       }`}
                     >
-                      {daySchedule.length === 0 ? (
+                      {filteredSchedule.length === 0 ? (
                         <div className="h-full flex items-center justify-center">
                           <div className="w-full h-8 bg-gray-50 rounded"></div>
                         </div>
                       ) : (
-                        // Multiple OT dalam 1 card compact
                         <div className="space-y-0.5">
-                          {daySchedule.length === 1 ? (
-                            // Single OT - tampilkan normal
+                          {filteredSchedule.length === 1 ? (
+                            // Single OT
                             (() => {
-                              const item = daySchedule[0]
+                              const item = filteredSchedule[0]
                               let bgColor = 'bg-amber-50 border-l-4 border-amber-400'
                               let textColor = 'text-amber-900'
                               
@@ -445,7 +556,7 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  className={`text-sm px-2 py-1.5 rounded ${bgColor} shadow-sm`}
                                   title={`${item.jenis} - ${item.durasi} jam - Grup ${item.grup}`}
                                 >
                                   <div className={`font-bold text-[11px] truncate ${textColor}`}>
@@ -459,12 +570,12 @@ export default function Dashboard() {
                               )
                             })()
                           ) : (
-                            // Multiple OT - gabung dalam 1 card compact
+                            // Multiple OT
                             (() => {
-                              const totalJam = daySchedule.reduce((sum, item) => sum + item.durasi, 0)
-                              const hasAnyActual = daySchedule.some(item => item.hasActual)
-                              const allHadir = daySchedule.every(item => item.hasActual && item.dilaksanakan)
-                              const anyTidakHadir = daySchedule.some(item => item.hasActual && !item.dilaksanakan)
+                              const totalJam = filteredSchedule.reduce((sum, item) => sum + item.durasi, 0)
+                              const hasAnyActual = filteredSchedule.some(item => item.hasActual)
+                              const allHadir = filteredSchedule.every(item => item.hasActual && item.dilaksanakan)
+                              const anyTidakHadir = filteredSchedule.some(item => item.hasActual && !item.dilaksanakan)
                               
                               let bgColor = 'bg-amber-50 border-l-4 border-amber-400'
                               let textColor = 'text-amber-900'
@@ -481,12 +592,12 @@ export default function Dashboard() {
                               
                               return (
                                 <div 
-                                  className={`text-xs px-2 py-1.5 rounded ${bgColor} shadow-sm`}
-                                  title={daySchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
+                                  className={`text-sm px-2 py-1.5 rounded ${bgColor} shadow-sm`}
+                                  title={filteredSchedule.map(item => `${item.jenis} (${item.durasi}j)`).join(' + ')}
                                 >
                                   <div className={`font-bold text-[10px] ${textColor} leading-tight space-y-0.5`}>
-                                    {daySchedule.map((item, i) => (
-                                      <div key={i} className="truncate">
+                                    {filteredSchedule.map((item, idx) => (
+                                      <div key={idx} className="truncate">
                                         • {item.jenis} {item.durasi}j
                                       </div>
                                     ))}
