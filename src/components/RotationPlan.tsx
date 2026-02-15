@@ -21,6 +21,7 @@ export default function RotationPlan() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'list' | 'generate'>('list')
+  const [excludeWeekends, setExcludeWeekends] = useState(true)
   const [intervalDays, setIntervalDays] = useState(4) // Rotasi setiap berapa hari
 
   const totalDays = startDate && endDate ? differenceInDays(new Date(endDate), new Date(startDate)) + 1 : 0
@@ -111,7 +112,8 @@ export default function RotationPlan() {
           selectedPekerjaIds,
           selectedOvertimeIds,
           intervalDays,
-          excludeWeekends: true
+          excludeWeekends,
+          maxHoursPerDay: 2
         },
         jenisOvertimeList,
         pekerjaList
@@ -423,6 +425,42 @@ export default function RotationPlan() {
                       </div>
                     </label>
                   ))}
+                </div>
+              </div>
+
+              {/* Weekend & Interval Options */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
+                {/* Skip Weekends Checkbox */}
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="excludeWeekends"
+                    checked={excludeWeekends}
+                    onChange={(e) => setExcludeWeekends(e.target.checked)}
+                    className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <label htmlFor="excludeWeekends" className="cursor-pointer flex-1">
+                    <div className="font-semibold text-gray-900 mb-1">🗓️ Skip Minggu & Tanggal Merah</div>
+                    <div className="text-sm text-gray-700 leading-relaxed">
+                      {excludeWeekends ? (
+                        <span className="text-green-700 font-medium">
+                          ✓ Hanya generate untuk hari kerja (Senin-Sabtu kecuali tanggal merah)
+                        </span>
+                      ) : (
+                        <span className="text-orange-700 font-medium">
+                          ✗ Generate untuk semua hari termasuk Minggu & tanggal merah
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                </div>
+
+                {/* Interval Days Display */}
+                <div className="bg-white bg-opacity-60 rounded-lg p-3 border border-blue-200">
+                  <div className="font-semibold text-gray-900 mb-1">🔄 Interval Rotasi</div>
+                  <div className="text-sm text-gray-700">
+                    Kelompok yang sama bertugas selama <span className="font-bold text-blue-600">{intervalDays} hari</span> berturut-turut sebelum rotasi
+                  </div>
                 </div>
               </div>
 
