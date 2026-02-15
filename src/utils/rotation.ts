@@ -444,5 +444,13 @@ export const formatDateShort = (date: string | Date) => {
 }
 
 export const getDayName = (date: string | Date) => {
-  return format(new Date(date), 'EEEE')
+  const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+  const dayIndex = new Date(date).getDay()
+  return dayNames[dayIndex]
+}
+
+export const getShortDayName = (date: string | Date) => {
+  const shortDayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+  const dayIndex = new Date(date).getDay()
+  return shortDayNames[dayIndex]
 }
